@@ -19,7 +19,11 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { chromium } from 'playwright-core'
+
+const require = createRequire(import.meta.url)
+void require
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const extensionPath = join(
@@ -170,6 +174,24 @@ async function main() {
     await options.goto(`chrome-extension://${extensionId}/options.html`)
     await options.waitForSelector('.options', { timeout: 10000 })
     await options.waitForSelector('select', { timeout: 5000 })
+
+    for (const [name, target] of [
+      ['popup', popup],
+      ['options', options]
+    ]) {
+      await target.addScriptTag({ url: `chrome-extension://${extensionId}/axe.min.js` })
+      const violations = await target.evaluate(async () => {
+        const result = await globalThis.axe.run(document, {
+          runOnly: ['wcag2a', 'wcag2aa']
+        })
+        return result.violations
+          .filter((violation) => ['serious', 'critical'].includes(violation.impact))
+          .map((violation) => ({ id: violation.id, impact: violation.impact, nodes: violation.nodes.length }))
+      })
+      if (violations.length > 0) {
+        fail(`${name} accessibility violations: ${JSON.stringify(violations)}`)
+      }
+    }
 
     // The popup cannot capture without the action-click gesture; it must show a
     // recoverable error state instead of crashing.

@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { build as esbuild } from 'esbuild'
 import vue from '@vitejs/plugin-vue'
 import { build as viteBuild } from 'vite'
@@ -85,6 +86,13 @@ async function main() {
   await writeFile(resolve(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 
   await cp(resolve(root, 'public'), outDir, { recursive: true })
+
+  if (e2e) {
+    // axe-core for accessibility checks; extension CSP forbids inline scripts,
+    // so the file must be loaded as an extension resource.
+    const axe = createRequire(import.meta.url).resolve('axe-core/axe.min.js')
+    await cp(axe, resolve(outDir, 'axe.min.js'))
+  }
 
   process.stdout.write(`Built extension at ${outDir}${e2e ? ' (E2E host permission)' : ''}${safari ? ' (Safari)' : ''}\n`)
 }
