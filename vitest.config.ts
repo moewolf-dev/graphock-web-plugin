@@ -13,7 +13,11 @@ export default defineConfig({
       { find: /^@graphock\/capture$/, replacement: pkg('capture/src/index.ts') },
       { find: /^@graphock\/capture\/metadata$/, replacement: pkg('capture/src/metadata.ts') },
       { find: /^@graphock\/capture\/sanitize$/, replacement: pkg('capture/src/sanitize.ts') },
-      { find: /^@graphock\/capture\/assets$/, replacement: pkg('capture/src/assets.ts') }
+      { find: /^@graphock\/capture\/assets$/, replacement: pkg('capture/src/assets.ts') },
+      { find: /^@graphock\/capture\/base64$/, replacement: pkg('capture/src/base64.ts') },
+      { find: /^@graphock\/capture\/images$/, replacement: pkg('capture/src/images.ts') },
+      { find: /^@graphock\/capture\/blocks$/, replacement: pkg('capture/src/blocks.ts') },
+      { find: /^@graphock\/capture\/readable$/, replacement: pkg('capture/src/readable.ts') }
     ]
   },
   test: {

@@ -8,7 +8,8 @@ export type FrontmatterOptions = {
 }
 
 type RenderContext = {
-  assetPathById: Map<string, string>
+  /** assetId → where the image lives (local path or original URL). */
+  imageSrcById: Map<string, string>
 }
 
 function escapeInlineText(text: string): string {
@@ -64,10 +65,10 @@ export function renderBlocks(blocks: Block[], context: RenderContext, indent = '
         chunks.push(renderInline(block.inline))
         break
       case 'image': {
-        const path = context.assetPathById.get(block.assetId)
-        if (!path) break
+        const src = context.imageSrcById.get(block.assetId)
+        if (!src) break
         const title = block.title ? ` "${block.title.replace(/"/gu, '\\"')}"` : ''
-        chunks.push(`![${block.alt.replace(/\]/gu, '\\]')}](${path}${title})`)
+        chunks.push(`![${block.alt.replace(/\]/gu, '\\]')}](${src}${title})`)
         break
       }
       case 'table':
@@ -128,7 +129,12 @@ export function renderFrontmatter(document: ClipDocument, options: FrontmatterOp
 
 export function toMarkdown(document: ClipDocument, options: FrontmatterOptions): string {
   const context: RenderContext = {
-    assetPathById: new Map(document.assets.map((asset) => [asset.id, asset.path]))
+    imageSrcById: new Map(
+      document.assets.map((asset) => [
+        asset.id,
+        asset.status === 'linked' ? (asset.sourceUrl ?? asset.path) : asset.path
+      ])
+    )
   }
   const body = renderBlocks(document.blocks, context)
   return `${renderFrontmatter(document, options)}\n${body}\n`

@@ -1,9 +1,11 @@
-import { htmlToBlocks, type ImageRef } from '@graphock/capture/blocks'
+import { htmlToBlocks } from '@graphock/capture/blocks'
+import { fetchImages } from '@graphock/capture/images'
+import { buildPageSnapshot, collectStyles } from './snapshot'
 import { extractMetadata } from '@graphock/capture/metadata'
 import { extractReadable } from '@graphock/capture/readable'
 import { sanitizeElement } from '@graphock/capture/sanitize'
 import type { Block } from '@graphock/clip-model'
-import type { CaptureMode, CollectedPage, CollectMessage } from '../shared/messages'
+import type { CaptureMode, CollectedImage, CollectedPage, CollectMessage } from '../shared/messages'
 
 declare global {
   interface Window {
@@ -32,7 +34,7 @@ function selectionRoot(): Element | null {
   return container
 }
 
-function collect(mode: CaptureMode): CollectedPage {
+async function collect(mode: CaptureMode): Promise<CollectedPage> {
   const metadata = extractMetadata(document, location.href)
   const readable = mode === 'readable' ? extractReadable(document) : { ok: false, content: null, textLength: 0 }
 
@@ -43,7 +45,7 @@ function collect(mode: CaptureMode): CollectedPage {
       return {
         source: metadata,
         blocks: [],
-        images: [],
+        images: [] as CollectedImage[],
         readable: false,
         text: '',
         selectionText: '',
@@ -60,12 +62,17 @@ function collect(mode: CaptureMode): CollectedPage {
 
   const cleaned = sanitizeElement(root, { stripStyles: false })
 
-  // Images are wired in C-05 together with the asset fetcher. Until then we
-  // must not emit image blocks that reference assets nobody collected.
-  const { blocks } = htmlToBlocks(cleaned, {
-    includeImages: false,
+  const { blocks, images } = htmlToBlocks(cleaned, {
+    includeImages: true,
     skipChrome: mode === 'full'
   })
+  const fetched = await fetchImages(images)
+
+  let html: string | undefined
+  if (mode === 'full') {
+    const styles = await collectStyles(document)
+    html = buildPageSnapshot(document, cleaned, styles, fetched)
+  }
 
   const text = (cleaned.textContent ?? '').replace(/\s+/gu, ' ').trim().slice(0, MAX_TEXT_CHARS)
   const selection = window.getSelection()
@@ -82,7 +89,8 @@ function collect(mode: CaptureMode): CollectedPage {
   return {
     source,
     blocks,
-    images: [] as ImageRef[],
+    images: fetched,
+    ...(html ? { html } : {}),
     readable: readable.ok && root === readable.content,
     text,
     selectionText,
@@ -96,21 +104,21 @@ if (!window.__graphockContentLoaded) {
   chrome.runtime.onMessage.addListener(
     (message: CollectMessage, _sender, sendResponse: (value: CollectedPage) => void) => {
       if (message?.type !== 'GRAPHOCK_COLLECT') return undefined
-      try {
-        sendResponse(collect(message.mode))
-      } catch {
-        sendResponse({
-          source: { url: location.href, title: document.title || location.href },
-          blocks: [] as Block[],
-          images: [],
-          readable: false,
-          text: '',
-          selectionText: '',
-          htmlBytes: 0,
-          nodeCount: 0
-        })
-      }
-      return undefined
+      void collect(message.mode)
+        .then(sendResponse)
+        .catch(() =>
+          sendResponse({
+            source: { url: location.href, title: document.title || location.href },
+            blocks: [] as Block[],
+            images: [] as CollectedImage[],
+            readable: false,
+            text: '',
+            selectionText: '',
+            htmlBytes: 0,
+            nodeCount: 0
+          })
+        )
+      return true
     }
   )
 }

@@ -1,14 +1,10 @@
+import type { HandoffPayload } from '@graphock/clip-model'
+import { buildFilename } from '@graphock/converters'
 import {
-  HANDOFF_SCHEMA,
-  PROTOCOL_VERSION,
-  computeDocumentChecksum,
-  computeHandoffChecksum,
-  type Block,
-  type ClipDocument,
-  type HandoffPayload
-} from '@graphock/clip-model'
-import { buildFilename, toMarkdown } from '@graphock/converters'
-import { ProtocolError, buildInlineUrl, buildWakeUrl } from '@graphock/handoff'
+  ProtocolError,
+  buildFileUrl,
+  buildWakeUrl
+} from '@graphock/handoff'
 import {
   DEFAULT_SETTINGS,
   type CaptureRequest,
@@ -18,47 +14,75 @@ import {
   type SaveRequest,
   type Settings
 } from '../shared/messages'
+import { buildClip, serializePayload, type BuildResult } from './build'
 
 const GENERATOR_NAME = 'graphock-web-plugin'
 const GENERATOR_VERSION = '0.1.0'
 const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024
+const MAX_PACKAGE_BYTES = 12 * 1024 * 1024
+const FILE_CHANNEL_UNAVAILABLE_SCHEMES = new Set(['graphock'])
 
 async function getSettings(): Promise<Settings> {
   const stored = await chrome.storage.local.get('settings')
   return { ...DEFAULT_SETTINGS, ...(stored['settings'] as Partial<Settings> | undefined) }
 }
 
-function textToBlocks(text: string): Block[] {
-  const paragraphs = text
-    .split(/\n{2,}/u)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .slice(0, 600)
-  return paragraphs.map((paragraph) => ({
-    type: 'paragraph',
-    inline: [{ type: 'text', text: paragraph.replace(/\s*\n\s*/gu, ' ') }]
-  }))
+function downloadSubdirectory(settings: Settings): string {
+  return settings.downloadSubdirectory.trim().replace(/^\/+|\/+$/gu, '')
 }
 
-function buildDocument(collected: CollectedPage, mode: CaptureRequest['mode']): ClipDocument {
-  const bodyBlocks =
-    collected.blocks.length > 0 ? collected.blocks : textToBlocks(collected.text)
-  const blocks: Block[] = [
-    { type: 'heading', level: 1, text: collected.source.title },
-    ...bodyBlocks
-  ]
-  return {
-    schema: 'graphock.clip.document/1',
-    clipId: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent },
-    source: collected.source,
-    mode,
-    blocks,
-    assets: [],
-    stats: { blockCount: blocks.length, assetCount: 0, bytes: collected.text.length },
-    checksum: '0'.repeat(64)
+function download(options: chrome.downloads.DownloadOptions): Promise<number> {
+  return new Promise((resolve, reject) => {
+    chrome.downloads.download(options, (downloadId) => {
+      const error = chrome.runtime.lastError
+      if (error || downloadId === undefined) reject(new Error(error?.message ?? 'Download failed'))
+      else resolve(downloadId)
+    })
+  })
+}
+
+async function waitForDownload(id: number): Promise<chrome.downloads.DownloadItem> {
+  const deadline = Date.now() + 15_000
+  while (Date.now() < deadline) {
+    const [item] = await chrome.downloads.search({ id })
+    if (item?.state === 'complete') return item
+    if (item?.state === 'interrupted') {
+      throw new ProtocolError('E_DOWNLOAD_INTERRUPTED', `Download was interrupted: ${item.error ?? 'unknown'}`)
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150))
   }
+  throw new ProtocolError('E_DOWNLOAD_TIMEOUT', 'Timed out waiting for the clip package to be written')
+}
+
+async function savePackage(
+  payload: HandoffPayload,
+  title: string,
+  clipId: string,
+  settings: Settings
+): Promise<{ path: string; filename: string }> {
+  const json = serializePayload(payload)
+  const bytes = new TextEncoder().encode(json)
+  if (bytes.byteLength > MAX_PACKAGE_BYTES) {
+    throw new ProtocolError(
+      'E_PACKAGE_TOO_LARGE',
+      `Clip package is ${Math.round(bytes.byteLength / 1024)} KB; the current limit is ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`
+    )
+  }
+  const filename = buildFilename({
+    date: new Date(),
+    title,
+    clipId,
+    extension: 'graphock-clip.json'
+  })
+  const subdirectory = downloadSubdirectory(settings)
+  const dataUrl = `data:application/json;charset=utf-8,${encodeURIComponent(json)}`
+  const id = await download({
+    url: dataUrl,
+    filename: subdirectory ? `${subdirectory}/${filename}` : filename,
+    saveAs: false
+  })
+  const item = await waitForDownload(id)
+  return { path: item.filename, filename }
 }
 
 async function capture(request: CaptureRequest): Promise<CaptureResult> {
@@ -76,7 +100,7 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
       code: 'E_INJECTION_FAILED',
       message:
         'This page does not allow content scripts (browser pages and the Web Store do not). ' +
-        `[tab=${tab.url ?? 'unknown'}; ${error instanceof Error ? error.message : 'unknown error'}]`
+        `[${error instanceof Error ? error.message : 'unknown error'}]`
     }
   }
 
@@ -87,77 +111,98 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
       mode: request.mode
     })) as CollectedPage
   } catch {
-    return { ok: false, code: 'E_COLLECT_FAILED', message: 'The page did not respond to the capture request.' }
+    return {
+      ok: false,
+      code: 'E_COLLECT_FAILED',
+      message: 'The page did not respond to the capture request.'
+    }
   }
 
-  if (!collected.text.trim()) {
+  if (collected.blocks.length === 0 && !collected.text.trim()) {
     return {
       ok: false,
       code: 'E_EMPTY_CONTENT',
-      message: request.mode === 'selection' ? 'Nothing is selected on this page.' : 'This page has no readable text.'
+      message:
+        request.mode === 'selection'
+          ? 'Nothing is selected on this page.'
+          : 'This page has no readable text.'
     }
   }
 
-  const document = buildDocument(collected, request.mode)
-  document.checksum = await computeDocumentChecksum({
-    clipId: document.clipId,
-    mode: document.mode,
-    source: document.source,
-    blocks: document.blocks,
-    assets: []
-  })
-
-  const markdown = toMarkdown(document, {
-    generatorName: GENERATOR_NAME,
-    generatorVersion: GENERATOR_VERSION
-  })
-
-  const payload: HandoffPayload = {
-    schema: HANDOFF_SCHEMA,
-    protocolVersion: PROTOCOL_VERSION,
-    clipId: document.clipId,
-    createdAt: document.createdAt,
-    source: document.source,
-    document: { format: 'markdown', content: markdown },
-    assets: [],
-    generator: document.generator,
-    checksum: await computeHandoffChecksum({
-      clipId: document.clipId,
-      document: { format: 'markdown', content: markdown },
-      assets: []
-    })
+  const format = request.format ?? settings.defaultFormat
+  const options = {
+    mode: request.mode,
+    imagePolicy: settings.imagePolicy,
+    scheme: settings.targetScheme,
+    format,
+    ...(format === 'html' && request.mode === 'full' && collected.html
+      ? { htmlSnapshot: collected.html }
+      : {}),
+    generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent }
   }
 
-  try {
-    const url = buildInlineUrl(settings.targetScheme, payload)
+  let built: BuildResult = await buildClip(collected, options)
+
+  const canUseFileChannel = !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
+
+  // Embedded images rarely fit in a 24k-character URL. When the target build
+  // can read a file, save the package and pass its path; MAS cannot, so it
+  // degrades to linked images instead of pretending the images were included.
+  if (!built.inlineUrl && !canUseFileChannel) {
+    built = await buildClip(collected, { ...options, imagePolicy: 'link' })
+  }
+
+  const base = {
+    ok: true as const,
+    mode: request.mode,
+    title: built.document.source.title,
+    clipId: built.document.clipId,
+    markdown: built.markdown,
+    format: built.format,
+    content: built.content,
+    bytes: built.content.length,
+    assetCount: built.stats.assetCount,
+    embeddedAssets: built.stats.embedded,
+    linkedAssets: built.stats.linked,
+    failedAssets: built.stats.failed
+  }
+
+  if (built.inlineUrl) {
     return {
-      ok: true,
-      url,
+      ...base,
+      url: built.inlineUrl,
       channel: 'inline',
-      mode: request.mode,
-      title: document.source.title,
-      clipId: document.clipId,
-      markdown,
-      bytes: markdown.length,
-      urlLength: url.length
+      urlLength: built.inlineUrl.length
     }
-  } catch (error) {
-    if (error instanceof ProtocolError) {
+  }
+
+  if (canUseFileChannel) {
+    try {
+      const saved = await savePackage(built.payload, base.title, base.clipId, settings)
+      const url = buildFileUrl(settings.targetScheme, saved.path, base.clipId)
       return {
-        ok: true,
-        url: buildWakeUrl(settings.targetScheme),
-        channel: 'wake',
-        mode: request.mode,
-        title: document.source.title,
-        clipId: document.clipId,
-        markdown,
-        bytes: markdown.length,
-        urlLength: 0,
-        fallbackReason:
-          'This page is too large for the inline handoff channel. Save it as a file and import it in Graphock instead.'
+        ...base,
+        url,
+        channel: 'file',
+        urlLength: url.length,
+        savedFilename: saved.filename
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        code: error instanceof ProtocolError ? error.code : 'E_PACKAGE_FAILED',
+        message: error instanceof Error ? error.message : 'Could not save the clip package'
       }
     }
-    throw error
+  }
+
+  return {
+    ...base,
+    url: buildWakeUrl(settings.targetScheme),
+    channel: 'wake',
+    urlLength: 0,
+    fallbackReason:
+      'This clip is too large for an import link and the Mac App Store build cannot read downloads. Use “Save file” instead.'
   }
 }
 
@@ -169,36 +214,35 @@ async function openInApp(request: OpenRequest): Promise<void> {
   }
 }
 
-async function saveMarkdown(request: SaveRequest): Promise<{ ok: true; filename: string }> {
+const FORMAT_META: Record<SaveRequest['format'], { extension: string; mime: string }> = {
+  markdown: { extension: 'md', mime: 'text/markdown' },
+  html: { extension: 'html', mime: 'text/html' },
+  json: { extension: 'json', mime: 'application/json' },
+  yaml: { extension: 'yaml', mime: 'application/yaml' }
+}
+
+async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: string }> {
   const settings = await getSettings()
-  const bytes = new TextEncoder().encode(request.markdown)
+  const meta = FORMAT_META[request.format] ?? FORMAT_META.markdown
+  const bytes = new TextEncoder().encode(request.content)
   if (bytes.byteLength > MAX_DOWNLOAD_BYTES) {
     throw new ProtocolError(
       'E_LIMIT_EXCEEDED',
-      `Markdown is ${bytes.byteLength} bytes; the temporary download limit is ${MAX_DOWNLOAD_BYTES}.`
+      `The export is ${bytes.byteLength} bytes; the temporary download limit is ${MAX_DOWNLOAD_BYTES}. Use “Open in Graphock” or a smaller format.`
     )
   }
   const filename = buildFilename({
     date: new Date(),
     title: request.title,
     clipId: request.clipId,
-    extension: 'md'
+    extension: meta.extension
   })
-  const subdirectory = settings.downloadSubdirectory.trim().replace(/^\/+|\/+$/gu, '')
-  const dataUrl = `data:text/markdown;charset=utf-8,${encodeURIComponent(request.markdown)}`
-  await new Promise<void>((resolve, reject) => {
-    chrome.downloads.download(
-      {
-        url: dataUrl,
-        filename: subdirectory ? `${subdirectory}/${filename}` : filename,
-        saveAs: false
-      },
-      (downloadId) => {
-        const error = chrome.runtime.lastError
-        if (error || downloadId === undefined) reject(new Error(error?.message ?? 'Download failed'))
-        else resolve()
-      }
-    )
+  const subdirectory = downloadSubdirectory(settings)
+  const dataUrl = `data:${meta.mime};charset=utf-8,${encodeURIComponent(request.content)}`
+  await download({
+    url: dataUrl,
+    filename: subdirectory ? `${subdirectory}/${filename}` : filename,
+    saveAs: false
   })
   return { ok: true, filename }
 }
@@ -220,7 +264,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true
   }
   if (type === 'GRAPHOCK_SAVE') {
-    saveMarkdown(message as SaveRequest).then(
+    saveContent(message as SaveRequest).then(
       (result) => sendResponse(result),
       (error: unknown) =>
         sendResponse({

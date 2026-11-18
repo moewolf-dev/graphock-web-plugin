@@ -93,6 +93,42 @@ describe('markdown', () => {
   })
 })
 
+describe('image rendering', () => {
+  it('uses local paths for embedded assets and source URLs for linked ones', () => {
+    const document = sampleDocument({
+      blocks: [
+        { type: 'image', assetId: 'a1', alt: 'Local' },
+        { type: 'image', assetId: 'l1', alt: 'Remote' }
+      ],
+      assets: [
+        {
+          id: 'a1',
+          path: 'assets/a1-12345678.png',
+          mimeType: 'image/png',
+          sha256: 'a'.repeat(64),
+          bytes: 10,
+          status: 'embedded'
+        },
+        {
+          id: 'l1',
+          path: 'assets/l1.linked',
+          mimeType: 'image/*',
+          sha256: 'b'.repeat(64),
+          bytes: 0,
+          sourceUrl: 'https://example.com/remote.png',
+          status: 'linked'
+        }
+      ]
+    })
+    const markdown = toMarkdown(document, {
+      generatorName: 'graphock-web-plugin',
+      generatorVersion: '0.1.0'
+    })
+    expect(markdown).toContain('![Local](assets/a1-12345678.png)')
+    expect(markdown).toContain('![Remote](https://example.com/remote.png)')
+  })
+})
+
 describe('json and yaml', () => {
   it('produces deterministic JSON', () => {
     const document = sampleDocument()

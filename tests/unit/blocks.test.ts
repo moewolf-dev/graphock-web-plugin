@@ -61,8 +61,7 @@ describe('htmlToBlocks', () => {
     const heading = blocks[0]
     expect(heading).toMatchObject({ type: 'heading', level: 1, text: 'How to clip a page' })
 
-    const paragraph = blocks[1]
-    if (paragraph.type !== 'paragraph') throw new Error('expected paragraph')
+    const paragraph = blocks[1] as Extract<Block, { type: 'paragraph' }>
     expect(paragraph.inline).toEqual([
       { type: 'text', text: 'This is the ' },
       { type: 'strong', text: 'first' },
@@ -71,16 +70,14 @@ describe('htmlToBlocks', () => {
       { type: 'text', text: '.' }
     ])
 
-    const list = blocks[3]
+    const list = blocks[3] as Extract<Block, { type: 'list' }>
     expect(list).toMatchObject({ type: 'list', ordered: true })
-    if (list.type !== 'list') throw new Error('expected list')
     expect(list.items).toHaveLength(2)
 
     const code = blocks[5]
     expect(code).toMatchObject({ type: 'code', lang: 'ts', text: 'const x = 1' })
 
-    const table = blocks[6]
-    if (table.type !== 'table') throw new Error('expected table')
+    const table = blocks[6] as Extract<Block, { type: 'table' }>
     expect(table.rows[0]).toEqual([
       { text: 'Name', header: true },
       { text: 'Value', header: true }

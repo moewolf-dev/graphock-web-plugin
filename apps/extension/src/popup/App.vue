@@ -4,6 +4,8 @@ import {
   DEFAULT_SETTINGS,
   type CaptureMode,
   type CaptureResult,
+  type ImagePolicy,
+  type OutputFormat,
   type Settings
 } from '../shared/messages'
 
@@ -11,6 +13,7 @@ const loading = ref(true)
 const busy = ref(false)
 const result = ref<CaptureResult | null>(null)
 const mode = ref<CaptureMode>(DEFAULT_SETTINGS.defaultMode)
+const format = ref<OutputFormat>(DEFAULT_SETTINGS.defaultFormat)
 const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
 const notice = ref('')
 const copied = ref(false)
@@ -19,6 +22,19 @@ const modes: { value: CaptureMode; label: string; hint: string }[] = [
   { value: 'readable', label: 'Readable', hint: 'Main article text' },
   { value: 'full', label: 'Full page', hint: 'All visible text' },
   { value: 'selection', label: 'Selection', hint: 'Only what is selected' }
+]
+
+const formats: { value: OutputFormat; label: string }[] = [
+  { value: 'markdown', label: 'MD' },
+  { value: 'html', label: 'HTML' },
+  { value: 'json', label: 'JSON' },
+  { value: 'yaml', label: 'YAML' }
+]
+
+const policies: { value: ImagePolicy; label: string; hint: string }[] = [
+  { value: 'embed', label: 'Images', hint: 'Embed image files (larger clips use a package file)' },
+  { value: 'link', label: 'Links', hint: 'Keep image URLs only' },
+  { value: 'skip', label: 'Text only', hint: 'Drop images' }
 ]
 
 const errorText = computed(() => {
@@ -31,15 +47,24 @@ const metaText = computed(() => {
   const value = result.value
   if (!value?.ok) return ''
   const kb = Math.max(1, Math.round(value.bytes / 1024))
-  return value.channel === 'inline'
-    ? `${kb} KB · protocol link ${value.urlLength.toLocaleString()} characters`
-    : `${kb} KB · too large for a link, save as a file`
+  const images =
+    value.assetCount > 0
+      ? ` · ${value.embeddedAssets} embedded, ${value.linkedAssets} linked${value.failedAssets > 0 ? `, ${value.failedAssets} failed` : ''}`
+      : ''
+  if (value.channel === 'inline') {
+    return `${kb} KB · link ${value.urlLength.toLocaleString()} characters${images}`
+  }
+  if (value.channel === 'file') {
+    return `${kb} KB · package ${value.savedFilename ?? 'saved'}${images}`
+  }
+  return `${kb} KB · saved as file, open Graphock manually${images}`
 })
 
 async function loadSettings(): Promise<void> {
   const stored = await chrome.storage.local.get('settings')
   settings.value = { ...DEFAULT_SETTINGS, ...((stored['settings'] as Partial<Settings>) ?? {}) }
   mode.value = settings.value.defaultMode
+  format.value = settings.value.defaultFormat
 }
 
 async function capture(): Promise<void> {
@@ -49,7 +74,8 @@ async function capture(): Promise<void> {
   try {
     result.value = (await chrome.runtime.sendMessage({
       type: 'GRAPHOCK_CAPTURE',
-      mode: mode.value
+      mode: mode.value,
+      format: format.value
     })) as CaptureResult
   } catch (error) {
     result.value = {
@@ -65,6 +91,19 @@ async function capture(): Promise<void> {
 function setMode(next: CaptureMode): void {
   if (mode.value === next) return
   mode.value = next
+  void capture()
+}
+
+function setFormat(next: OutputFormat): void {
+  if (format.value === next) return
+  format.value = next
+  void capture()
+}
+
+function setPolicy(next: ImagePolicy): void {
+  if (settings.value.imagePolicy === next) return
+  settings.value = { ...settings.value, imagePolicy: next }
+  void chrome.storage.local.set({ settings: settings.value })
   void capture()
 }
 
@@ -88,7 +127,9 @@ async function openApp(): Promise<void> {
     notice.value =
       value.channel === 'wake'
         ? 'Graphock opened. Choose “Import file” in the app to bring this page in.'
-        : 'Graphock should be opening. Confirm the browser prompt if it appears.'
+        : value.channel === 'file'
+          ? `Saved ${value.savedFilename}. Graphock should be opening with it.`
+          : 'Graphock should be opening. Confirm the browser prompt if it appears.'
   } catch {
     notice.value = 'The browser blocked the custom protocol. Copy the import link and open it manually.'
   } finally {
@@ -96,7 +137,7 @@ async function openApp(): Promise<void> {
   }
 }
 
-async function saveMarkdown(): Promise<void> {
+async function saveFile(): Promise<void> {
   const value = result.value
   if (!value?.ok) return
   busy.value = true
@@ -104,7 +145,8 @@ async function saveMarkdown(): Promise<void> {
   try {
     const response = (await chrome.runtime.sendMessage({
       type: 'GRAPHOCK_SAVE',
-      markdown: value.markdown,
+      content: value.content,
+      format: value.format,
       title: value.title,
       clipId: value.clipId
     })) as { ok: boolean; filename?: string; code?: string; message?: string }
@@ -170,6 +212,37 @@ onMounted(async () => {
       </button>
     </fieldset>
 
+    <fieldset class="clip__modes clip__modes--compact" :disabled="loading">
+      <legend class="clip__legend">Format</legend>
+      <button
+        v-for="option in formats"
+        :key="option.value"
+        class="clip__mode"
+        :class="{ 'clip__mode--active': format === option.value }"
+        type="button"
+        :aria-pressed="format === option.value"
+        @click="setFormat(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </fieldset>
+
+    <fieldset class="clip__modes clip__modes--compact" :disabled="loading">
+      <legend class="clip__legend">Images</legend>
+      <button
+        v-for="option in policies"
+        :key="option.value"
+        class="clip__mode"
+        :class="{ 'clip__mode--active': settings.imagePolicy === option.value }"
+        type="button"
+        :title="option.hint"
+        :aria-pressed="settings.imagePolicy === option.value"
+        @click="setPolicy(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </fieldset>
+
     <p v-if="result?.ok && result.fallbackReason" class="clip__warning" role="status">
       {{ result.fallbackReason }}
     </p>
@@ -187,8 +260,8 @@ onMounted(async () => {
         <button class="clip__button" type="button" :disabled="!result?.ok" @click="copyLink">
           {{ copied ? 'Copied' : 'Copy import link' }}
         </button>
-        <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="saveMarkdown">
-          Save .md
+        <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="saveFile">
+          Save file
         </button>
       </div>
     </div>
@@ -356,6 +429,11 @@ body {
   border-radius: 10px;
   background: var(--bg-elevated);
   border-width: 1px;
+}
+
+.clip__modes--compact .clip__mode {
+  font-size: 11px;
+  padding: 6px 4px;
 }
 
 .clip__legend {

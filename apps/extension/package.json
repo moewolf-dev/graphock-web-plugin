@@ -11,7 +11,8 @@
     "@graphock/clip-model": "workspace:*",
     "@graphock/converters": "workspace:*",
     "@graphock/handoff": "workspace:*",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "@graphock/capture": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",

@@ -60,13 +60,33 @@ async function findChrome() {
 }
 
 async function serve() {
+  // 1x1 transparent PNG.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64'
+  )
   const server = createServer((request, response) => {
+    if (request.url === '/style.css') {
+      response.writeHead(200, { 'content-type': 'text/css' })
+      response.end('body { color: rgb(18, 52, 86); } .marker { border-left: 3px solid teal; }')
+      return
+    }
+    if (request.url === '/img.png') {
+      response.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
+      response.end(png)
+      return
+    }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     response.end(`<!doctype html><html lang="en"><head>
       <title>Graphock smoke page</title>
       <meta property="og:title" content="Smoke page title">
       <meta name="author" content="E2E">
-    </head><body><main><h1>Smoke page</h1><p>Hello from the local test server.</p></main></body></html>`)
+      <link rel="stylesheet" href="/style.css">
+      <style>.inline-marker { padding: 4px; }</style>
+    </head><body><main><h1>Smoke page</h1>
+      <p>Hello from the local test server. This page is long enough to exercise the capture pipeline and image collection path.</p>
+      <figure><img src="/img.png" alt="Pixel" width="1" height="1"><figcaption>A pixel</figcaption></figure>
+    </main></body></html>`)
   })
   await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
   const address = server.address()
@@ -150,6 +170,39 @@ async function main() {
     if (!captureResult.markdown.includes('Smoke page')) {
       fail('captured Markdown does not contain the page heading')
     }
+    if (captureResult.embeddedAssets < 1) {
+      fail(`expected at least one embedded image, got ${JSON.stringify(captureResult)}`)
+    }
+    if (!captureResult.markdown.includes('assets/a1-')) {
+      fail('captured Markdown does not reference the embedded asset path')
+    }
+    console.log(
+      `e2e:smoke: captured ${captureResult.assetCount} asset(s), channel=${captureResult.channel}`
+    )
+
+    // Full-page HTML export: stylesheet inlined, image as a data URI, no scripts.
+    const htmlResult = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'full', format: 'html' })
+    )
+    if (!htmlResult?.ok || htmlResult.format !== 'html') {
+      console.error('e2e:smoke: html capture result:', htmlResult)
+      throw new Error('full-page HTML capture failed')
+    }
+    if (!htmlResult.content.includes('rgb(18, 52, 86)')) {
+      fail('external stylesheet was not inlined into the HTML snapshot')
+    }
+    if (!htmlResult.content.includes('.inline-marker')) {
+      fail('inline <style> was not preserved in the HTML snapshot')
+    }
+    if (!htmlResult.content.includes('data:image/png;base64')) {
+      fail('image was not embedded as a data URI in the HTML snapshot')
+    }
+    if (htmlResult.content.includes('<script')) {
+      fail('HTML snapshot contains a script tag')
+    }
+    console.log(
+      `e2e:smoke: full-page HTML ${Math.round(htmlResult.content.length / 1024)} KB, channel=${htmlResult.channel}`
+    )
 
     if (errors.length > 0) fail(`page errors:\n${errors.join('\n')}`)
     console.log('e2e:smoke: OK (extension loaded, popup and options rendered)')

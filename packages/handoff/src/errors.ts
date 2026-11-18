@@ -15,6 +15,10 @@ export type ProtocolErrorCode =
   | 'E_FILE_TOO_LARGE'
   | 'E_UNSUPPORTED_FORMAT'
   | 'E_DUPLICATE_CLIP'
+  | 'E_DOWNLOAD_INTERRUPTED'
+  | 'E_DOWNLOAD_TIMEOUT'
+  | 'E_PACKAGE_TOO_LARGE'
+  | 'E_PACKAGE_FAILED'
 
 export class ProtocolError extends Error {
   readonly code: ProtocolErrorCode

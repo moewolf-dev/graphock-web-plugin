@@ -60,6 +60,9 @@ importers:
 
   apps/extension:
     dependencies:
+      '@graphock/capture':
+        specifier: workspace:*
+        version: link:../../packages/capture
       '@graphock/clip-model':
         specifier: workspace:*
         version: link:../../packages/clip-model
@@ -91,6 +94,9 @@ importers:
       '@graphock/clip-model':
         specifier: workspace:*
         version: link:../clip-model
+      '@mozilla/readability':
+        specifier: ^0.6.0
+        version: 0.6.0
 
   packages/clip-model:
     dependencies:

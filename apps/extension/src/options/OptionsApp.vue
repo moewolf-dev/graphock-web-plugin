@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { DEFAULT_SETTINGS, type CaptureMode, type Settings } from '../shared/messages'
+import {
+  DEFAULT_SETTINGS,
+  type CaptureMode,
+  type ImagePolicy,
+  type OutputFormat,
+  type Settings
+} from '../shared/messages'
 
 const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
 const saved = ref(false)
@@ -16,6 +22,19 @@ const modes: { value: CaptureMode; label: string }[] = [
   { value: 'readable', label: 'Readable main content' },
   { value: 'full', label: 'Full page text' },
   { value: 'selection', label: 'Selection only' }
+]
+
+const formats: { value: OutputFormat; label: string }[] = [
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'html', label: 'HTML (self-contained)' },
+  { value: 'json', label: 'JSON (document model)' },
+  { value: 'yaml', label: 'YAML (document model)' }
+]
+
+const policies: { value: ImagePolicy; label: string }[] = [
+  { value: 'embed', label: 'Embed image files (package file when large)' },
+  { value: 'link', label: 'Keep image links only' },
+  { value: 'skip', label: 'Text only' }
 ]
 
 async function load(): Promise<void> {
@@ -75,6 +94,22 @@ onMounted(load)
         <select v-model="settings.defaultMode">
           <option v-for="mode in modes" :key="mode.value" :value="mode.value">
             {{ mode.label }}
+          </option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Default format</span>
+        <select v-model="settings.defaultFormat">
+          <option v-for="option in formats" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Images</span>
+        <select v-model="settings.imagePolicy">
+          <option v-for="policy in policies" :key="policy.value" :value="policy.value">
+            {{ policy.label }}
           </option>
         </select>
       </label>

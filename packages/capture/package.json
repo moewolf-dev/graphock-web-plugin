@@ -11,7 +11,9 @@
     "./sanitize": "./src/sanitize.ts",
     "./assets": "./src/assets.ts",
     "./readable": "./src/readable.ts",
-    "./blocks": "./src/blocks.ts"
+    "./blocks": "./src/blocks.ts",
+    "./base64": "./src/base64.ts",
+    "./images": "./src/images.ts"
   },
   "dependencies": {
     "@graphock/clip-model": "workspace:*",

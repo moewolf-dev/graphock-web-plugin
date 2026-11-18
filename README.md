@@ -22,21 +22,24 @@ straight to the [Graphock](https://graphock.com) desktop app.
 
 Current `0.1.0` slice:
 
-- captures page metadata + readable text and produces a Markdown handoff payload;
-- builds an inline `graphock-direct://import#p=v1.…` link (or falls back to wake-only when the
-  content is too large);
-- saves Markdown through the browser download API;
-- settings page for target app channel, default mode and download subdirectory;
+- readable extraction (Readability) with a full-page / selection fallback, converted into a
+  structured block model (headings, lists, quotes, code, tables, figures);
+- image collection with content-hash dedupe; embedded images, linked images, or text-only;
+- output formats: Markdown, self-contained HTML (styles + data-URI images), JSON and YAML;
+- handoff channels: inline `graphock-direct://import#p=v1.…`, a saved package file for large
+  clips (Direct builds), and wake-only for the Mac App Store build;
+- local save through the browser download API;
+- settings page for target app channel, default mode/format, image policy, download subdirectory;
 - reference protocol receiver (`packages/protocol-receiver`) + test vectors for the desktop app.
 
-Not yet implemented (tracked in the plan): full-page HTML with inlined assets, image embedding,
-JSON/YAML exports from the extension UI, Safari packaging, store submission.
+Not yet implemented (tracked in the plan): cross-origin image permission flow, zip packages for
+local saves, CSS background images and webfont inlining, Safari packaging, store submission.
 
 ## Quick start
 
 ```bash
 pnpm install
-pnpm verify            # typecheck + 59 unit tests + build
+pnpm verify            # typecheck + 75 unit tests + build
 pnpm test:e2e          # real Chrome: load extension, capture a page, build a handoff URL
 pnpm build             # → apps/extension/dist/chrome
 pnpm package:chrome    # → artifacts/graphock-web-plugin-0.1.0-chrome.zip
