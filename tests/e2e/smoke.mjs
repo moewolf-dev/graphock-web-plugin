@@ -131,9 +131,9 @@ async function main() {
 
   const context = await chromium.launchPersistentContext(userDataDir, {
     executablePath,
-    // MV3 extensions are reliable only in headful Chrome today; CI wraps this
-    // script with xvfb. Set HEADLESS=1 only for experiments.
-    headless: process.env.HEADLESS === '1',
+    // Chrome for Testing supports extensions in new headless mode. Set
+    // HEADFUL=1 locally if you want to watch the run.
+    headless: process.env.HEADFUL !== '1',
     // Playwright intercepts downloads into its artifact folder, which is fine:
     // chrome.downloads still reports completion and the test can read the file.
     acceptDownloads: true,

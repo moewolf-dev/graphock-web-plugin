@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Graphock 网页剪藏",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "把当前网页保存为 HTML、Markdown、JSON 或 YAML，或直接发送到 Graphock 桌面端。",
+    "description": "Extension description"
+  }
+}

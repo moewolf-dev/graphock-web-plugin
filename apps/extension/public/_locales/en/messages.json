@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Graphock Web Clipper",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Save the current page as HTML, Markdown, JSON or YAML, or send it straight to the Graphock desktop app.",
+    "description": "Extension description"
+  }
+}

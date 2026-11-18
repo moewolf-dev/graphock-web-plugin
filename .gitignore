@@ -21,3 +21,7 @@ coverage/
 !.vscode/extensions.json
 tmp/
 artifacts/
+
+# The developer's global gitignore ignores public/; this project needs it.
+!apps/extension/public/
+!apps/extension/public/**
