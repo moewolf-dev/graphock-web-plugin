@@ -42,23 +42,41 @@ function fail(message) {
  */
 async function findChrome() {
   if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH
-  const cache = join(homedir(), 'Library/Caches/ms-playwright')
+
+  // Prefer the exact revision playwright-core expects (installed by CI).
   try {
-    const builds = (await readdir(cache)).filter((name) => name.startsWith('chromium-')).sort().reverse()
-    for (const build of builds) {
-      const candidate = join(
-        cache,
-        build,
-        'chrome-mac-arm64',
-        'Google Chrome for Testing.app',
-        'Contents',
-        'MacOS',
-        'Google Chrome for Testing'
-      )
-      if (existsSync(candidate)) return candidate
-    }
+    const bundled = chromium.executablePath()
+    if (bundled && existsSync(bundled)) return bundled
   } catch {
-    // No Playwright cache; fall through.
+    // Fall through to cache scanning.
+  }
+
+  for (const cache of [
+    join(homedir(), 'Library/Caches/ms-playwright'),
+    join(homedir(), '.cache/ms-playwright')
+  ]) {
+    try {
+      const builds = (await readdir(cache))
+        .filter((name) => name.startsWith('chromium-'))
+        .sort()
+        .reverse()
+      for (const build of builds) {
+        for (const arch of ['chrome-mac-arm64', 'chrome-mac-x64', 'chrome-mac']) {
+          const candidate = join(
+            cache,
+            build,
+            arch,
+            'Google Chrome for Testing.app',
+            'Contents',
+            'MacOS',
+            'Google Chrome for Testing'
+          )
+          if (existsSync(candidate)) return candidate
+        }
+      }
+    } catch {
+      // Try the next cache location.
+    }
   }
   return undefined
 }
@@ -129,6 +147,7 @@ async function main() {
   const { server, url } = await serve()
   const executablePath = await findChrome()
   if (!executablePath) {
+    server.close()
     fail('No Chrome for Testing build found. Set CHROME_PATH to a Chromium/Chrome for Testing binary.')
     return
   }
