@@ -14,7 +14,7 @@ export type CollectedImage = {
   mimeType?: string
   dataBase64?: string
   bytes?: number
-  status: 'fetched' | 'failed' | 'skipped'
+  status?: 'fetched' | 'failed' | 'skipped'
   reason?: string
 }
 
@@ -64,6 +64,8 @@ export type CaptureResult =
       embeddedAssets: number
       linkedAssets: number
       failedAssets: number
+      skippedAssets: number
+      canRequestImageAccess: boolean
       fallbackReason?: string
     }
   | { ok: false; code: string; message: string }
@@ -75,6 +77,17 @@ export type SaveRequest = {
   format: 'markdown' | 'html' | 'json' | 'yaml'
   title: string
   clipId: string
+  withAssets?: boolean
+}
+
+export type HistoryEntry = {
+  clipId: string
+  title: string
+  url: string
+  createdAt: string
+  format: 'markdown' | 'html' | 'json' | 'yaml'
+  channel: 'inline' | 'file' | 'wake'
+  bytes: number
 }
 
 export type ImagePolicy = 'embed' | 'link' | 'skip'

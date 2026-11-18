@@ -5,9 +5,12 @@
     "scripting",
     "storage",
     "downloads",
-    "offscreen"
+    "offscreen",
+    "contextMenus"
   ],
   "hostPermissions": [],
   "optionalPermissions": [],
-  "optionalHostPermissions": []
+  "optionalHostPermissions": [
+    "<all_urls>"
+  ]
 }

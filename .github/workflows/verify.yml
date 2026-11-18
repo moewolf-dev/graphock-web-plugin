@@ -25,8 +25,10 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm test:coverage
+      - run: pnpm lint:licenses
       - run: pnpm build
       - run: pnpm package:chrome
       - uses: actions/upload-artifact@v4
@@ -34,3 +36,8 @@ jobs:
           name: chrome-extension
           path: artifacts/
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: warn

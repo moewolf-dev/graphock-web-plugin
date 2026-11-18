@@ -40,3 +40,13 @@ Open questions to confirm during V-05:
 - [ ] Permission set matches the snapshot
 - [ ] No test keys, fixtures or `.map` files in the archive
 - [ ] Manual smoke on a clean browser profile
+
+
+## Official references (verify before submission)
+
+- Chrome Web Store program policies: https://developer.chrome.com/docs/webstore/program-policies
+- MV3 remote code / CSP: https://developer.chrome.com/docs/extensions/reference/manifest/content-security-policy
+- Chrome data disclosure: https://developer.chrome.com/docs/webstore/cws-dashboard-privacy
+- Safari web extensions: https://developer.apple.com/documentation/safariservices/safari-web-extensions
+- App Store Review Guidelines: https://developer.apple.com/app-store/review/guidelines/
+- App privacy details: https://developer.apple.com/app-store/app-privacy-details/

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_URL_LENGTH,
   ProtocolError,
   buildFileUrl,
   buildInlineUrl,

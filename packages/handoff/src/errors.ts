@@ -21,6 +21,7 @@ export type ProtocolErrorCode =
   | 'E_PACKAGE_FAILED'
   | 'E_DOWNLOAD_FAILED'
   | 'E_CHANNEL_UNAVAILABLE'
+  | 'E_CAPTURE_TIMEOUT'
 
 export class ProtocolError extends Error {
   readonly code: ProtocolErrorCode

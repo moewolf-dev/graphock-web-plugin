@@ -14,7 +14,16 @@ import {
   type SaveRequest,
   type Settings
 } from '../shared/messages'
-import { buildClip, serializePayload, type BuildResult } from './build'
+import { fetchImages } from '@graphock/capture/images'
+import { TimeoutError, withTimeout } from './timeout'
+import {
+  buildClip,
+  buildClipZip,
+  inlineCssAssets,
+  inlineHtmlImages,
+  serializePayload,
+  type BuildResult
+} from './build'
 
 const GENERATOR_NAME = 'graphock-web-plugin'
 const GENERATOR_VERSION = '0.1.0'
@@ -22,6 +31,34 @@ const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024
 const MAX_PACKAGE_BYTES = 12 * 1024 * 1024
 const FILE_CHANNEL_UNAVAILABLE_SCHEMES = new Set(['graphock'])
 const MAX_PAGE_SAVE_BYTES = 5 * 1024 * 1024
+const HISTORY_KEY = 'history'
+const MAX_HISTORY = 20
+
+const lastBuilds = new Map<string, BuildResult>()
+
+function rememberBuild(build: BuildResult): void {
+  lastBuilds.set(build.document.clipId, build)
+  while (lastBuilds.size > 3) {
+    const oldest = lastBuilds.keys().next().value
+    if (oldest) lastBuilds.delete(oldest)
+  }
+}
+
+async function rememberHistory(build: BuildResult, channel: 'inline' | 'file' | 'wake'): Promise<void> {
+  const stored = await chrome.storage.local.get(HISTORY_KEY)
+  const history = Array.isArray(stored[HISTORY_KEY]) ? (stored[HISTORY_KEY] as unknown[]) : []
+  const entry = {
+    clipId: build.document.clipId,
+    title: build.document.source.title,
+    url: build.document.source.url,
+    createdAt: build.document.createdAt,
+    format: build.format,
+    channel,
+    bytes: build.content.length
+  }
+  const next = [entry, ...history.filter((item) => (item as { url?: string })?.url !== entry.url)]
+  await chrome.storage.local.set({ [HISTORY_KEY]: next.slice(0, MAX_HISTORY) })
+}
 
 function hasDownloadsApi(): boolean {
   return typeof chrome.downloads?.download === 'function'
@@ -190,16 +227,31 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
 
   let collected: CollectedPage
   try {
-    collected = (await chrome.tabs.sendMessage(tab.id, {
-      type: 'GRAPHOCK_COLLECT',
-      mode: request.mode
-    })) as CollectedPage
-  } catch {
+    collected = (await withTimeout(
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'GRAPHOCK_COLLECT',
+        mode: request.mode
+      }) as Promise<CollectedPage>,
+      20_000,
+      'The page took too long to capture.'
+    )) as CollectedPage
+  } catch (error) {
+    if (error instanceof TimeoutError) {
+      return {
+        ok: false,
+        code: error.code,
+        message: 'This page took more than 20 seconds to capture. Try “Readable” or “Selection”.'
+      }
+    }
     return {
       ok: false,
       code: 'E_COLLECT_FAILED',
       message: 'The page did not respond to the capture request.'
     }
+  }
+
+  if (settings.imagePolicy !== 'skip' && collected.images.length > 0) {
+    collected.images = await fetchImages(collected.images)
   }
 
   if (collected.blocks.length === 0 && !collected.text.trim()) {
@@ -214,14 +266,16 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
   }
 
   const format = request.format ?? settings.defaultFormat
+  let htmlSnapshot = collected.html
+  if (format === 'html' && request.mode === 'full' && htmlSnapshot) {
+    htmlSnapshot = await inlineCssAssets(inlineHtmlImages(htmlSnapshot, collected.images))
+  }
   const options = {
     mode: request.mode,
     imagePolicy: settings.imagePolicy,
     scheme: settings.targetScheme,
     format,
-    ...(format === 'html' && request.mode === 'full' && collected.html
-      ? { htmlSnapshot: collected.html }
-      : {}),
+    ...(format === 'html' && request.mode === 'full' && htmlSnapshot ? { htmlSnapshot } : {}),
     generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent }
   }
 
@@ -236,6 +290,9 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
     built = await buildClip(collected, { ...options, imagePolicy: 'link' })
   }
 
+  const imagePermissionGranted =
+    settings.imagePolicy === 'skip' ? true : await chrome.permissions.contains({ origins: ['<all_urls>'] })
+
   const base = {
     ok: true as const,
     mode: request.mode,
@@ -248,10 +305,14 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
     assetCount: built.stats.assetCount,
     embeddedAssets: built.stats.embedded,
     linkedAssets: built.stats.linked,
-    failedAssets: built.stats.failed
+    failedAssets: built.stats.failed,
+    skippedAssets: built.stats.skipped,
+    canRequestImageAccess: built.stats.failed > 0 && !imagePermissionGranted
   }
 
   if (built.inlineUrl) {
+    rememberBuild(built)
+    await rememberHistory(built, 'inline')
     return {
       ...base,
       url: built.inlineUrl,
@@ -264,6 +325,8 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
     try {
       const saved = await savePackage(built.payload, base.title, base.clipId, settings)
       const url = buildFileUrl(settings.targetScheme, saved.path, base.clipId)
+      rememberBuild(built)
+      await rememberHistory(built, 'file')
       return {
         ...base,
         url,
@@ -280,6 +343,8 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
     }
   }
 
+  rememberBuild(built)
+  await rememberHistory(built, 'wake')
   return {
     ...base,
     url: buildWakeUrl(settings.targetScheme),
@@ -305,8 +370,62 @@ const FORMAT_META: Record<SaveRequest['format'], { extension: string; mime: stri
   yaml: { extension: 'yaml', mime: 'application/yaml' }
 }
 
+async function downloadBytes(
+  bytes: Uint8Array,
+  filename: string,
+  mime: string
+): Promise<{ id: number }> {
+  let base64 = ''
+  const chunk = 0x8000
+  for (let index = 0; index < bytes.length; index += chunk) {
+    base64 += String.fromCharCode(...bytes.subarray(index, index + chunk))
+  }
+  const encoded = btoa(base64)
+  if (!hasDownloadsApi() || !hasOffscreenApi()) {
+    throw new ProtocolError(
+      'E_CHANNEL_UNAVAILABLE',
+      'This browser cannot save zip archives. Save a single file instead.'
+    )
+  }
+  await ensureOffscreen()
+  const created = (await chrome.runtime.sendMessage({
+    type: 'GRAPHOCK_OFFSCREEN_CREATE',
+    base64: encoded,
+    mime
+  })) as { ok?: boolean; url?: string; message?: string } | undefined
+  if (!created?.ok || !created.url) {
+    throw new ProtocolError('E_DOWNLOAD_FAILED', created?.message ?? 'Could not create the archive blob')
+  }
+  try {
+    return { id: await download({ url: created.url, filename, saveAs: false }) }
+  } catch (error) {
+    await chrome.runtime.sendMessage({ type: 'GRAPHOCK_OFFSCREEN_REVOKE', url: created.url })
+    throw new ProtocolError('E_DOWNLOAD_FAILED', error instanceof Error ? error.message : 'Download failed')
+  }
+}
+
 async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: string }> {
   const settings = await getSettings()
+  const subdirectory = downloadSubdirectory(settings)
+  const build = lastBuilds.get(request.clipId)
+
+  if (request.withAssets && build && build.payload.assets.length > 0 && request.format !== 'html') {
+    const zip = buildClipZip(build)
+    const filename = buildFilename({
+      date: new Date(),
+      title: request.title,
+      clipId: request.clipId,
+      extension: 'zip'
+    })
+    const { id } = await downloadBytes(
+      zip,
+      subdirectory ? `${subdirectory}/${filename}` : filename,
+      'application/zip'
+    )
+    await waitForDownload(id)
+    return { ok: true, filename }
+  }
+
   const meta = FORMAT_META[request.format] ?? FORMAT_META.markdown
   const bytes = new TextEncoder().encode(request.content)
   if (bytes.byteLength > MAX_DOWNLOAD_BYTES) {
@@ -321,7 +440,6 @@ async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: 
     clipId: request.clipId,
     extension: meta.extension
   })
-  const subdirectory = downloadSubdirectory(settings)
   const { id } = await downloadText(
     request.content,
     subdirectory ? `${subdirectory}/${filename}` : filename,
@@ -330,6 +448,55 @@ async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: 
   if (id >= 0) await waitForDownload(id)
   return { ok: true, filename }
 }
+
+const MENU_PAGE = 'graphock-clip-page'
+const MENU_SELECTION = 'graphock-clip-selection'
+
+function createMenus(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: MENU_PAGE,
+      title: 'Clip page to Graphock',
+      contexts: ['page']
+    })
+    chrome.contextMenus.create({
+      id: MENU_SELECTION,
+      title: 'Clip selection to Graphock',
+      contexts: ['selection']
+    })
+  })
+}
+
+chrome.runtime.onInstalled.addListener(createMenus)
+chrome.runtime.onStartup.addListener(createMenus)
+
+async function quickClip(mode: CaptureRequest['mode']): Promise<void> {
+  const result = await capture({ type: 'GRAPHOCK_CAPTURE', mode })
+  if (!result.ok) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#b42318' })
+    await chrome.action.setBadgeText({ text: '!' })
+    setTimeout(() => {
+      void chrome.action.setBadgeText({ text: '' })
+    }, 5_000)
+    return
+  }
+  await chrome.action.setBadgeText({ text: '' })
+  try {
+    await chrome.tabs.create({ url: result.url })
+  } catch {
+    // The browser may block the external protocol; the popup offers a copy path.
+  }
+}
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === MENU_PAGE) void quickClip('readable')
+  else if (info.menuItemId === MENU_SELECTION) void quickClip('selection')
+})
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'clip-page') void quickClip('readable')
+  else if (command === 'clip-selection') void quickClip('selection')
+})
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string } | undefined)?.type

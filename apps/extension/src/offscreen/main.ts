@@ -7,7 +7,8 @@
  */
 type CreateRequest = {
   type: 'GRAPHOCK_OFFSCREEN_CREATE'
-  content: string
+  content?: string
+  base64?: string
   mime: string
 }
 
@@ -33,7 +34,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (request?.type !== 'GRAPHOCK_OFFSCREEN_CREATE') return undefined
 
   try {
-    const blob = new Blob([request.content], { type: `${request.mime};charset=utf-8` })
+    const blob = request.base64
+      ? (() => {
+          const binary = atob(request.base64)
+          const bytes = new Uint8Array(binary.length)
+          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+          return new Blob([bytes], { type: request.mime })
+        })()
+      : new Blob([request.content ?? ''], { type: `${request.mime};charset=utf-8` })
     const url = URL.createObjectURL(blob)
     owned.add(url)
     setTimeout(() => {

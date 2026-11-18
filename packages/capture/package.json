@@ -13,7 +13,8 @@
     "./readable": "./src/readable.ts",
     "./blocks": "./src/blocks.ts",
     "./base64": "./src/base64.ts",
-    "./images": "./src/images.ts"
+    "./images": "./src/images.ts",
+    "./dom": "./src/dom.ts"
   },
   "dependencies": {
     "@graphock/clip-model": "workspace:*",

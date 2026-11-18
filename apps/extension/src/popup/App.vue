@@ -8,6 +8,7 @@ import {
   type OutputFormat,
   type Settings
 } from '../shared/messages'
+import { t } from '../shared/strings'
 
 const loading = ref(true)
 const busy = ref(false)
@@ -17,11 +18,12 @@ const format = ref<OutputFormat>(DEFAULT_SETTINGS.defaultFormat)
 const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
 const notice = ref('')
 const copied = ref(false)
+let requestSeq = 0
 
 const modes: { value: CaptureMode; label: string; hint: string }[] = [
-  { value: 'readable', label: 'Readable', hint: 'Main article text' },
-  { value: 'full', label: 'Full page', hint: 'All visible text' },
-  { value: 'selection', label: 'Selection', hint: 'Only what is selected' }
+  { value: 'readable', label: t('readable'), hint: 'Main article text' },
+  { value: 'full', label: t('fullPage'), hint: 'All visible text' },
+  { value: 'selection', label: t('selection'), hint: 'Only what is selected' }
 ]
 
 const formats: { value: OutputFormat; label: string }[] = [
@@ -32,9 +34,9 @@ const formats: { value: OutputFormat; label: string }[] = [
 ]
 
 const policies: { value: ImagePolicy; label: string; hint: string }[] = [
-  { value: 'embed', label: 'Images', hint: 'Embed image files (larger clips use a package file)' },
-  { value: 'link', label: 'Links', hint: 'Keep image URLs only' },
-  { value: 'skip', label: 'Text only', hint: 'Drop images' }
+  { value: 'embed', label: t('embed'), hint: 'Embed image files (larger clips use a package file)' },
+  { value: 'link', label: t('links'), hint: 'Keep image URLs only' },
+  { value: 'skip', label: t('textOnly'), hint: 'Drop images' }
 ]
 
 const errorText = computed(() => {
@@ -48,8 +50,10 @@ const metaText = computed(() => {
   if (!value?.ok) return ''
   const kb = Math.max(1, Math.round(value.bytes / 1024))
   const images =
-    value.assetCount > 0
-      ? ` · ${value.embeddedAssets} embedded, ${value.linkedAssets} linked${value.failedAssets > 0 ? `, ${value.failedAssets} failed` : ''}`
+    value.assetCount > 0 || value.failedAssets > 0
+      ? ` · ${value.embeddedAssets} embedded, ${value.linkedAssets} linked` +
+        `${value.failedAssets > 0 ? `, ${value.failedAssets} failed` : ''}` +
+        `${value.skippedAssets > 0 ? `, ${value.skippedAssets} skipped` : ''}`
       : ''
   if (value.channel === 'inline') {
     return `${kb} KB · link ${value.urlLength.toLocaleString()} characters${images}`
@@ -68,24 +72,34 @@ async function loadSettings(): Promise<void> {
 }
 
 async function capture(): Promise<void> {
+  const seq = ++requestSeq
   loading.value = true
   notice.value = ''
   copied.value = false
   try {
-    result.value = (await chrome.runtime.sendMessage({
+    const response = (await chrome.runtime.sendMessage({
       type: 'GRAPHOCK_CAPTURE',
       mode: mode.value,
       format: format.value
     })) as CaptureResult
+    if (seq !== requestSeq) return
+    result.value = response
   } catch (error) {
+    if (seq !== requestSeq) return
     result.value = {
       ok: false,
       code: 'E_EXTENSION',
       message: error instanceof Error ? error.message : 'The extension could not reach its background worker.'
     }
   } finally {
-    loading.value = false
+    if (seq === requestSeq) loading.value = false
   }
+}
+
+function cancelCapture(): void {
+  requestSeq += 1
+  loading.value = false
+  notice.value = 'Capture cancelled.'
 }
 
 function setMode(next: CaptureMode): void {
@@ -115,6 +129,14 @@ async function copyLink(): Promise<void> {
   notice.value = 'Protocol link copied.'
 }
 
+async function requestImageAccess(): Promise<void> {
+  const granted = await chrome.permissions.request({ origins: ['<all_urls>'] })
+  notice.value = granted
+    ? 'Image access granted. Capturing again…'
+    : 'Image access was not granted; images stay as links.'
+  if (granted) await capture()
+}
+
 async function openApp(): Promise<void> {
   const value = result.value
   if (!value?.ok) return
@@ -137,6 +159,11 @@ async function openApp(): Promise<void> {
   }
 }
 
+const saveNeedsZip = computed(() => {
+  const value = result.value
+  return Boolean(value?.ok && value.embeddedAssets > 0 && value.format !== 'html')
+})
+
 async function saveFile(): Promise<void> {
   const value = result.value
   if (!value?.ok) return
@@ -148,7 +175,8 @@ async function saveFile(): Promise<void> {
       content: value.content,
       format: value.format,
       title: value.title,
-      clipId: value.clipId
+      clipId: value.clipId,
+      withAssets: saveNeedsZip.value
     })) as { ok: boolean; filename?: string; code?: string; message?: string }
     notice.value = response.ok
       ? `Saved as ${response.filename}.`
@@ -181,23 +209,24 @@ onMounted(async () => {
     </header>
 
     <section v-if="result?.ok" class="clip__page">
-      <p class="clip__eyebrow">Current page</p>
+      <p class="clip__eyebrow">{{ t('currentPage') }}</p>
       <h1 class="clip__title" :title="result.title">{{ result.title }}</h1>
       <p class="clip__meta">{{ metaText }}</p>
     </section>
 
     <section v-else-if="loading" class="clip__page clip__page--loading">
-      <p class="clip__eyebrow">Reading page…</p>
+      <p class="clip__eyebrow">{{ t('readingPage') }}</p>
       <div class="clip__skeleton"></div>
+      <button class="clip__link" type="button" @click="cancelCapture">{{ t('cancel') }}</button>
     </section>
 
     <section v-else class="clip__error" role="alert">
-      <p class="clip__eyebrow">Could not clip this page</p>
+      <p class="clip__eyebrow">{{ t('couldNotClip') }}</p>
       <p class="clip__error-text">{{ errorText }}</p>
     </section>
 
     <fieldset class="clip__modes" :disabled="loading">
-      <legend class="clip__legend">Capture</legend>
+      <legend class="clip__legend">{{ t('capture') }}</legend>
       <button
         v-for="option in modes"
         :key="option.value"
@@ -213,7 +242,7 @@ onMounted(async () => {
     </fieldset>
 
     <fieldset class="clip__modes clip__modes--compact" :disabled="loading">
-      <legend class="clip__legend">Format</legend>
+      <legend class="clip__legend">{{ t('format') }}</legend>
       <button
         v-for="option in formats"
         :key="option.value"
@@ -228,7 +257,7 @@ onMounted(async () => {
     </fieldset>
 
     <fieldset class="clip__modes clip__modes--compact" :disabled="loading">
-      <legend class="clip__legend">Images</legend>
+      <legend class="clip__legend">{{ t('images') }}</legend>
       <button
         v-for="option in policies"
         :key="option.value"
@@ -247,6 +276,22 @@ onMounted(async () => {
       {{ result.fallbackReason }}
     </p>
 
+    <p
+      v-if="result?.ok && (result.failedAssets > 0 || result.skippedAssets > 0)"
+      class="clip__warning"
+      role="status"
+    >
+      {{ t('someImagesFailed') }}
+    </p>
+    <button
+      v-if="result?.ok && result.canRequestImageAccess"
+      class="clip__button"
+      type="button"
+      @click="requestImageAccess"
+    >
+      {{ t('allowCrossOriginImages') }}
+    </button>
+
     <div class="clip__actions">
       <button
         class="clip__button clip__button--primary"
@@ -254,14 +299,14 @@ onMounted(async () => {
         :disabled="!result?.ok || busy"
         @click="openApp"
       >
-        Open in Graphock
+        {{ t('openInGraphock') }}
       </button>
       <div class="clip__row">
         <button class="clip__button" type="button" :disabled="!result?.ok" @click="copyLink">
-          {{ copied ? 'Copied' : 'Copy import link' }}
+          {{ copied ? t('copied') : t('copyImportLink') }}
         </button>
         <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="saveFile">
-          Save file
+          {{ saveNeedsZip ? t('saveZip') : t('saveFile') }}
         </button>
       </div>
     </div>
@@ -270,7 +315,7 @@ onMounted(async () => {
 
     <footer class="clip__footer">
       <span class="clip__scheme">{{ settings.targetScheme }}://import</span>
-      <button class="clip__link" type="button" @click="openOptions">Settings</button>
+      <button class="clip__link" type="button" @click="openOptions">{{ t('settings') }}</button>
     </footer>
   </main>
 </template>

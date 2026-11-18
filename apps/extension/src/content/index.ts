@@ -1,7 +1,7 @@
 import { htmlToBlocks } from '@graphock/capture/blocks'
-import { fetchImages } from '@graphock/capture/images'
 import { buildPageSnapshot, collectStyles } from './snapshot'
 import { extractMetadata } from '@graphock/capture/metadata'
+import { cloneForExport } from '@graphock/capture/dom'
 import { extractReadable } from '@graphock/capture/readable'
 import { sanitizeElement } from '@graphock/capture/sanitize'
 import type { Block } from '@graphock/clip-model'
@@ -60,13 +60,17 @@ async function collect(mode: CaptureMode): Promise<CollectedPage> {
     root = document.body ?? document.documentElement
   }
 
-  const cleaned = sanitizeElement(root, { stripStyles: false })
+  // Include open shadow roots and iframe placeholders before sanitizing.
+  const raw = cloneForExport(root)
+  const cleaned = sanitizeElement(raw, { stripStyles: false })
 
   const { blocks, images } = htmlToBlocks(cleaned, {
     includeImages: true,
     skipChrome: mode === 'full'
   })
-  const fetched = await fetchImages(images)
+  // The background worker fetches image bytes: it has the optional host
+  // permission and is not subject to the page's CORS restrictions.
+  const fetched = images
 
   let html: string | undefined
   if (mode === 'full') {

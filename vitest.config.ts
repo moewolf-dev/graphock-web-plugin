@@ -17,12 +17,24 @@ export default defineConfig({
       { find: /^@graphock\/capture\/base64$/, replacement: pkg('capture/src/base64.ts') },
       { find: /^@graphock\/capture\/images$/, replacement: pkg('capture/src/images.ts') },
       { find: /^@graphock\/capture\/blocks$/, replacement: pkg('capture/src/blocks.ts') },
-      { find: /^@graphock\/capture\/readable$/, replacement: pkg('capture/src/readable.ts') }
+      { find: /^@graphock\/capture\/readable$/, replacement: pkg('capture/src/readable.ts') },
+      { find: /^@graphock\/capture\/dom$/, replacement: pkg('capture/src/dom.ts') }
     ]
   },
   test: {
     include: ['tests/**/*.test.ts', 'packages/**/*.test.ts'],
     environment: 'node',
-    reporters: 'default'
+    reporters: 'default',
+    coverage: {
+      provider: 'v8',
+      include: ['packages/*/src/**/*.ts', 'apps/extension/src/background/build.ts'],
+      exclude: ['**/index.ts', '**/cli.ts', '**/*.d.ts'],
+      thresholds: {
+        lines: 78,
+        statements: 78,
+        functions: 80,
+        branches: 65
+      }
+    }
   }
 })

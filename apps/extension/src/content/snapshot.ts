@@ -1,4 +1,4 @@
-import type { FetchedImage } from '@graphock/capture/images'
+import type { ImageRef } from '@graphock/capture/blocks'
 
 const MAX_STYLES_CHARS = 1_500_000
 const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
@@ -18,10 +18,25 @@ function escapeHtml(value: string): string {
  * with the inline CSS plus the browser default. Everything is capped so a
  * hostile page cannot exhaust memory.
  */
+function absolutizeCssUrls(css: string, base: string): string {
+  return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/giu, (whole, quote: string, raw: string) => {
+    const value = raw.trim()
+    if (!value || value.startsWith('data:') || value.startsWith('#') || value.startsWith('about:')) {
+      return whole
+    }
+    try {
+      const absolute = new URL(value, base).toString()
+      return `url(${quote}${absolute}${quote})`
+    } catch {
+      return whole
+    }
+  })
+}
+
 export async function collectStyles(doc: Document): Promise<string> {
   const parts: string[] = []
   for (const style of Array.from(doc.querySelectorAll('style'))) {
-    parts.push(style.textContent ?? '')
+    parts.push(absolutizeCssUrls(style.textContent ?? '', doc.baseURI))
   }
 
   const links = Array.from(doc.querySelectorAll('link[rel~="stylesheet"]')).slice(0, 8)
@@ -33,7 +48,7 @@ export async function collectStyles(doc: Document): Promise<string> {
       const response = await fetch(url, { credentials: 'omit' })
       if (!response.ok) continue
       const text = await response.text()
-      if (text.length <= 512 * 1024) parts.push(`/* ${url} */\n${text}`)
+      if (text.length <= 512 * 1024) parts.push(`/* ${url} */\n${absolutizeCssUrls(text, url)}`)
     } catch {
       // Cross-origin or offline: keep the inline styles we already have.
     }
@@ -50,7 +65,7 @@ export function buildPageSnapshot(
   doc: Document,
   root: Element,
   styles: string,
-  images: FetchedImage[]
+  images: Array<ImageRef & { dataBase64?: string; mimeType?: string }>
 ): string {
   const clone = root.cloneNode(true) as Element
   for (const link of Array.from(clone.querySelectorAll('link[rel~="stylesheet"]'))) link.remove()

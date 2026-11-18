@@ -1,0 +1,33 @@
+#!/usr/bin/env node
+/**
+ * Require a Signed-off-by trailer on every commit in a range.
+ *
+ * Usage: node tooling/ci/check-dco.mjs <git-range>   (e.g. origin/main..HEAD)
+ */
+import { execFileSync } from 'node:child_process'
+
+const range = process.argv[2]
+if (!range) {
+  console.error('check-dco: missing git range')
+  process.exit(2)
+}
+
+const output = execFileSync('git', ['log', '--format=%H%x00%B%x00', range], { encoding: 'utf8' })
+const entries = output.split('\0').map((part) => part.trim()).filter(Boolean)
+const commits = []
+for (let index = 0; index < entries.length; index += 2) {
+  commits.push({ sha: entries[index], body: entries[index + 1] ?? '' })
+}
+
+const offenders = commits.filter(
+  (commit) => !/^Signed-off-by:\s+.+<[^>]+>$/imu.test(commit.body)
+)
+
+if (offenders.length > 0) {
+  console.error('check-dco: missing Signed-off-by in:')
+  for (const commit of offenders) console.error(`  ${commit.sha.slice(0, 12)}`)
+  console.error('Use `git commit -s` (see CONTRIBUTING.md).')
+  process.exit(1)
+}
+
+console.log(`check-dco: ${commits.length} commit(s) signed off`)

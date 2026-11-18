@@ -41,13 +41,61 @@ execFileSync(
   { cwd: root, stdio: 'inherit' }
 )
 
+// Privacy manifest: no tracking, no collected data.
+const extensionDir = join(projectDir, 'Graphock Web Clipper Extension')
+await writeFile(
+  join(extensionDir, 'PrivacyInfo.xcprivacy'),
+  `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSPrivacyTracking</key>
+  <false/>
+  <key>NSPrivacyTrackingDomains</key>
+  <array/>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array/>
+  <key>NSPrivacyAccessedAPITypes</key>
+  <array/>
+</dict>
+</plist>
+`
+)
+
 const source = await readFile(pbxproj, 'utf8')
 const converterAppId = /"PRODUCT_BUNDLE_IDENTIFIER": "([^"]*Graphock-Web-Clipper)"/u
 if (!converterAppId.test(source)) {
   throw new Error('Could not find the converter-generated app bundle identifier')
 }
-const patched = source.replace(converterAppId, `"PRODUCT_BUNDLE_IDENTIFIER": "${APP_ID}"`)
+let patched = source.replace(converterAppId, `"PRODUCT_BUNDLE_IDENTIFIER": "${APP_ID}"`)
+if (!patched.includes('PrivacyInfo.xcprivacy')) {
+  patched = patched.replace(
+    '        { "path": "SafariWebExtensionHandler.swift"',
+    '        { "path": "PrivacyInfo.xcprivacy", "target-membership": [ "Graphock Web Clipper Extension/resources" ] },\n        { "path": "SafariWebExtensionHandler.swift"'
+  )
+}
 await writeFile(pbxproj, patched)
+
+// App icon: resize the committed master with sips (macOS-only project).
+const appIconDir = join(projectDir, 'Graphock Web Clipper/Assets.xcassets/AppIcon.appiconset')
+const master = join(root, 'tooling/assets/app-icon-1024.png')
+const iconSizes = [
+  ['mac-icon-16@1x.png', 16],
+  ['mac-icon-16@2x.png', 32],
+  ['mac-icon-32@1x.png', 32],
+  ['mac-icon-32@2x.png', 64],
+  ['mac-icon-128@1x.png', 128],
+  ['mac-icon-128@2x.png', 256],
+  ['mac-icon-256@1x.png', 256],
+  ['mac-icon-256@2x.png', 512],
+  ['mac-icon-512@1x.png', 512],
+  ['mac-icon-512@2x.png', 1024]
+]
+for (const [name, size] of iconSizes) {
+  execFileSync('sips', ['-z', String(size), String(size), master, '--out', join(appIconDir, name)], {
+    stdio: 'ignore'
+  })
+}
 
 await writeFile(
   join(projectRoot, 'README.md'),

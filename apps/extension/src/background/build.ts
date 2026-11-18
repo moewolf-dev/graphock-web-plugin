@@ -10,6 +10,7 @@ import {
   type HandoffPayload
 } from '@graphock/clip-model'
 import { base64ToBytes, bytesToBase64 } from '@graphock/capture/base64'
+import { strToU8, zipSync } from 'fflate'
 import { storeAssets } from '@graphock/capture/assets'
 import { toHtml, toJson, toMarkdown, toYaml } from '@graphock/converters'
 import { buildInlineUrl, isAbsolutePath, ProtocolError } from '@graphock/handoff'
@@ -295,6 +296,126 @@ function serialise(
     default:
       return markdown
   }
+}
+
+/**
+ * Replace remote image URLs in a full-page snapshot with data URIs.
+ * The content script cannot embed bytes (the background fetches them), so the
+ * substitution happens here on the serialized HTML.
+ */
+export function inlineHtmlImages(
+  html: string,
+  images: Array<{ sourceUrl: string; dataBase64?: string; mimeType?: string }>
+): string {
+  let output = html
+  for (const image of images) {
+    if (!image.dataBase64) continue
+    const data = `data:${image.mimeType ?? 'image/png'};base64,${image.dataBase64}`
+    const escaped = image.sourceUrl
+      .replace(/&/gu, '&amp;')
+      .replace(/"/gu, '&quot;')
+      .replace(/</gu, '&lt;')
+      .replace(/>/gu, '&gt;')
+    for (const value of new Set([image.sourceUrl, escaped])) {
+      output = output.split(`src="${value}"`).join(`src="${data}"`)
+    }
+  }
+  return output
+}
+
+const ZIP_MTIME = new Date('2026-01-01T00:00:00Z')
+
+function extensionFor(format: OutputFormat): string {
+  return format === 'markdown' ? 'md' : format
+}
+
+/**
+ * Deterministic zip: document + manifest + assets.
+ * The manifest keeps asset metadata but drops the base64 payload to avoid
+ * doubling the archive size.
+ */
+export function buildClipZip(build: BuildResult): Uint8Array {
+  const files: Record<string, [Uint8Array, { mtime: Date; level: 9 }]> = {}
+  const documentName = `document.${extensionFor(build.format)}`
+  files[documentName] = [strToU8(build.content), { mtime: ZIP_MTIME, level: 9 }]
+
+  const manifest = {
+    ...build.payload,
+    assets: build.payload.assets.map(({ path, mimeType, sha256, sourceUrl }) => ({
+      path,
+      mimeType,
+      sha256,
+      ...(sourceUrl ? { sourceUrl } : {})
+    }))
+  }
+  files['manifest.json'] = [
+    strToU8(`${JSON.stringify(manifest, null, 2)}\n`),
+    { mtime: ZIP_MTIME, level: 9 }
+  ]
+
+  for (const asset of build.payload.assets) {
+    if (!asset.data) continue
+    files[asset.path] = [base64ToBytes(asset.data), { mtime: ZIP_MTIME, level: 9 }]
+  }
+
+  const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)))
+  return zipSync(sorted, { mtime: ZIP_MTIME })
+}
+
+export type InlineCssOptions = {
+  maxAssets?: number
+  maxAssetBytes?: number
+  maxTotalBytes?: number
+  fetchImpl?: typeof fetch
+}
+
+const CSS_URL_PATTERN = /url\(\s*(['"]?)([^'")]+)\1\s*\)/giu
+
+/**
+ * Fetch CSS `url(...)` targets (background images, webfonts) and inline them as
+ * data URIs. Best-effort: failures leave the original URL in place.
+ */
+export async function inlineCssAssets(
+  html: string,
+  options: InlineCssOptions = {}
+): Promise<string> {
+  const maxAssets = options.maxAssets ?? 20
+  const maxAssetBytes = options.maxAssetBytes ?? 2 * 1024 * 1024
+  const maxTotalBytes = options.maxTotalBytes ?? 8 * 1024 * 1024
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+
+  const urls = new Set<string>()
+  for (const match of html.matchAll(CSS_URL_PATTERN)) {
+    const value = match[2]?.trim()
+    if (!value) continue
+    if (value.startsWith('data:') || value.startsWith('#') || value.startsWith('about:')) continue
+    if (!/^https?:/iu.test(value)) continue
+    urls.add(value)
+    if (urls.size >= maxAssets) break
+  }
+
+  const replacements = new Map<string, string>()
+  let total = 0
+  for (const url of urls) {
+    try {
+      const response = await fetchImpl(url, { credentials: 'omit' })
+      if (!response.ok) continue
+      const header = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (bytes.byteLength > maxAssetBytes || total + bytes.byteLength > maxTotalBytes) continue
+      total += bytes.byteLength
+      const mime = header || (/\.(woff2?|ttf|otf)$/iu.test(url) ? 'font/woff2' : 'application/octet-stream')
+      replacements.set(url, `data:${mime};base64,${bytesToBase64(bytes)}`)
+    } catch {
+      // Leave the original URL: offline exports still degrade gracefully.
+    }
+  }
+
+  if (replacements.size === 0) return html
+  return html.replace(CSS_URL_PATTERN, (whole, quote: string, raw: string) => {
+    const replacement = replacements.get(raw.trim())
+    return replacement ? `url(${replacement})` : whole
+  })
 }
 
 /** Serialize a payload for the file channel (uncompressed JSON, UTF-8). */

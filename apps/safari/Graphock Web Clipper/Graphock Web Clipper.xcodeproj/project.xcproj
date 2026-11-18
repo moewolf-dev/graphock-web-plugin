@@ -78,6 +78,7 @@
             { "path": "../../../extension/dist/safari/save.js", "target-membership": [ "Graphock Web Clipper Extension/resources" ] },
           ],
         },
+        { "path": "PrivacyInfo.xcprivacy", "target-membership": [ "Graphock Web Clipper Extension/resources" ] },
         { "path": "SafariWebExtensionHandler.swift", "target-membership": [ "Graphock Web Clipper Extension/compile-sources" ] },
         { "path": "Info.plist" },
       ],
@@ -85,15 +86,15 @@
       "kind": "group",
       "name": "Products",
       "children": [
-        { "path": "<PRODUCTS>/Graphock Web Clipper.app", "id": "D2974D2430ADCB9400F66DCD", "type": "wrapper.application", "index": false },
-        { "path": "<PRODUCTS>/Graphock Web Clipper Extension.appex", "id": "D2974D3F30ADCB9500F66DCD", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "Graphock Web Clipper/copy/Embed Foundation Extensions", "header-preservation": "remove-on-copy" } ] },
+        { "path": "<PRODUCTS>/Graphock Web Clipper.app", "id": "D24FE83330ADD38200EB8610", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/Graphock Web Clipper Extension.appex", "id": "D24FE84E30ADD38400EB8610", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "Graphock Web Clipper/copy/Embed Foundation Extensions", "header-preservation": "remove-on-copy" } ] },
       ],
     },
   ],
   "targets": [
     {
       "name": "Graphock Web Clipper",
-      "id": "D2974D2330ADCB9400F66DCD",
+      "id": "D24FE83230ADD38200EB8610",
       "product": "Products/Graphock Web Clipper.app",
       "product-type": "application",
       "dependencies": [
@@ -149,7 +150,7 @@
       },
     }, {
       "name": "Graphock Web Clipper Extension",
-      "id": "D2974D3E30ADCB9500F66DCD",
+      "id": "D24FE84D30ADD38400EB8610",
       "product": "Products/Graphock Web Clipper Extension.appex",
       "product-type": "app-extension",
       "build-phases": [

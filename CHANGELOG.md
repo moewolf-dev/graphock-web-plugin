@@ -13,6 +13,14 @@ All notable changes are documented here. This project follows [Semantic Versioni
 - File handoff channel for large clips (Direct builds) with automatic MAS degradation.
 - Reference snapshots of Obsidian Web Clipper, MarkDownload and Defuddle at pinned commits,
   plus notes-only records for SingleFile and Omnivore.
+- Optional cross-origin image access, background image fetching, shadow DOM flattening,
+  iframe placeholders, CSS background/font inlining, 20 s capture timeout and cancellation.
+- Deterministic zip export (document + manifest + assets).
+- Recent clips, diagnostics, settings export/import, clear-all, English/Chinese UI, context menu
+  and keyboard shortcuts.
+- ESLint, coverage thresholds, DCO and licence gates, e2e CI workflow.
+- Store listing drafts, rollback runbook, release/compat templates, Safari icon and privacy
+  manifest, unsigned Safari archive.
 - Safari container project generated from the Safari build variant (classic service worker,
   no downloads/offscreen APIs, save-page fallback), with an idempotent regeneration script.
 - Protocol v1 spec (`docs/protocol/CUSTOM_PROTOCOL_IMPORT.md`) with inline/file/wake channels.

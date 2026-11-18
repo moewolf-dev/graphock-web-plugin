@@ -1,0 +1,142 @@
+/**
+ * Minimal UI dictionary (en / zh-CN).
+ *
+ * Technical errors and protocol codes stay in English on purpose: they are
+ * diagnostic strings that must match the spec. Labels, buttons and settings
+ * text are localised here.
+ */
+const en = {
+  brand: 'Graphock',
+  currentPage: 'Current page',
+  readingPage: 'Reading page…',
+  couldNotClip: 'Could not clip this page',
+  capture: 'Capture',
+  format: 'Format',
+  images: 'Images',
+  readable: 'Readable',
+  fullPage: 'Full page',
+  selection: 'Selection',
+  embed: 'Images',
+  links: 'Links',
+  textOnly: 'Text only',
+  openInGraphock: 'Open in Graphock',
+  copyImportLink: 'Copy import link',
+  copied: 'Copied',
+  saveFile: 'Save file',
+  saveZip: 'Save .zip',
+  cancel: 'Cancel',
+  settings: 'Settings',
+  someImagesFailed: 'Some images could not be embedded.',
+  allowCrossOriginImages: 'Allow cross-origin images',
+  settingsTitle: 'Settings',
+  settingsSubtitle: 'Settings are stored locally in this browser. No account, no telemetry.',
+  desktopApp: 'Desktop app',
+  targetBuild: 'Which build should receive clips?',
+  captureDefaults: 'Capture defaults',
+  defaultMode: 'Default mode',
+  defaultFormat: 'Default format',
+  downloadSubdirectory: 'Download subdirectory',
+  recentClips: 'Recent clips',
+  diagnostics: 'Diagnostics',
+  backup: 'Backup',
+  privacy: 'Privacy',
+  saveSettings: 'Save settings',
+  resetDefaults: 'Reset to defaults',
+  saved: 'Saved',
+  clearHistory: 'Clear history',
+  clearAll: 'Clear all local data',
+  exportSettings: 'Export settings',
+  importSettings: 'Import settings',
+  revokeImageAccess: 'Revoke optional image access',
+  noClips: 'No clips yet. Titles and URLs are stored locally.',
+  backupHint: 'Exports only settings — never page content or history.',
+  privacyHint:
+    'The extension reads the current tab only after you click it. Page content never leaves your device: it is saved locally or handed to the desktop app through a custom protocol.',
+  directBuild: 'Graphock Direct (website download)',
+  masBuild: 'Graphock (Mac App Store)',
+  devBuild: 'Graphock Dev (local build)',
+  modeReadable: 'Readable main content',
+  modeFull: 'Full page text',
+  modeSelection: 'Selection only',
+  formatMarkdown: 'Markdown',
+  formatHtml: 'HTML (self-contained)',
+  formatJson: 'JSON (document model)',
+  formatYaml: 'YAML (document model)',
+  policyEmbed: 'Embed image files (package file when large)',
+  policyLink: 'Keep image links only',
+  policySkip: 'Text only'
+} as const
+
+export type StringKey = keyof typeof en
+
+const zh: Record<StringKey, string> = {
+  brand: 'Graphock',
+  currentPage: '当前页面',
+  readingPage: '正在读取页面…',
+  couldNotClip: '无法剪藏此页面',
+  capture: '抓取',
+  format: '格式',
+  images: '图片',
+  readable: '正文',
+  fullPage: '整页',
+  selection: '选区',
+  embed: '嵌入',
+  links: '仅链接',
+  textOnly: '纯文本',
+  openInGraphock: '在 Graphock 中打开',
+  copyImportLink: '复制导入链接',
+  copied: '已复制',
+  saveFile: '保存文件',
+  saveZip: '保存 .zip',
+  cancel: '取消',
+  settings: '设置',
+  someImagesFailed: '部分图片无法嵌入。',
+  allowCrossOriginImages: '允许读取跨域图片',
+  settingsTitle: '设置',
+  settingsSubtitle: '设置只保存在本浏览器，无账号、无遥测。',
+  desktopApp: '桌面端',
+  targetBuild: '剪藏发送到哪个版本？',
+  captureDefaults: '抓取默认值',
+  defaultMode: '默认模式',
+  defaultFormat: '默认格式',
+  downloadSubdirectory: '下载子目录',
+  recentClips: '最近剪藏',
+  diagnostics: '诊断信息',
+  backup: '备份',
+  privacy: '隐私',
+  saveSettings: '保存设置',
+  resetDefaults: '恢复默认',
+  saved: '已保存',
+  clearHistory: '清空历史',
+  clearAll: '清空全部本地数据',
+  exportSettings: '导出设置',
+  importSettings: '导入设置',
+  revokeImageAccess: '撤销可选图片权限',
+  noClips: '还没有剪藏记录。只保存标题和链接。',
+  backupHint: '只导出设置，不包含页面内容或历史记录。',
+  privacyHint:
+    '只有在你点击后，扩展才会读取当前标签页。页面内容不会离开你的设备：要么保存到本地，要么通过自定义协议交给桌面端。',
+  directBuild: 'Graphock Direct（官网下载版）',
+  masBuild: 'Graphock（Mac App Store 版）',
+  devBuild: 'Graphock Dev（本地开发版）',
+  modeReadable: '正文内容',
+  modeFull: '整页文本',
+  modeSelection: '仅选区',
+  formatMarkdown: 'Markdown',
+  formatHtml: 'HTML（单文件）',
+  formatJson: 'JSON（文档模型）',
+  formatYaml: 'YAML（文档模型）',
+  policyEmbed: '嵌入图片（过大时生成压缩包）',
+  policyLink: '只保留图片链接',
+  policySkip: '纯文本'
+}
+
+export function currentLocale(): 'en' | 'zh' {
+  const language =
+    (typeof chrome !== 'undefined' && chrome.i18n?.getUILanguage?.()) || navigator.language || 'en'
+  return language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+}
+
+export function t(key: StringKey): string {
+  return currentLocale() === 'zh' ? zh[key] : en[key]
+}

@@ -68,6 +68,7 @@ export function validateDownloadSubdirectory(value: string): string {
       throw new Error('Download subdirectory must not contain empty, "." or ".." segments')
     }
     if (segment.length > 64) throw new Error('Download subdirectory segment is too long')
+    // eslint-disable-next-line no-control-regex
     if (/[<>:"|?*\u0000-\u001f]/u.test(segment)) {
       throw new Error('Download subdirectory contains illegal characters')
     }

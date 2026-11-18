@@ -39,7 +39,7 @@ local saves, CSS background images and webfont inlining, Safari packaging, store
 
 ```bash
 pnpm install
-pnpm verify            # typecheck + 75 unit tests + build
+pnpm verify            # lint + typecheck + 96 unit tests + build
 pnpm test:e2e          # real Chrome: load extension, capture a page, build a handoff URL
 pnpm build             # → apps/extension/dist/chrome
 pnpm package:chrome    # → artifacts/graphock-web-plugin-0.1.0-chrome.zip
@@ -95,9 +95,9 @@ pnpm protocol:receive --out ./tmp/clips --url 'graphock-direct://import#p=v1....
 
 - **One model, many formats.** Every serializer reads `ClipDocument`; no second extraction
   pipeline (see [ADR 0002](docs/adr/0002-converter-stack.md)).
-- **Least privilege.** `activeTab` + `scripting`; no `<all_urls>` by default, no remote code,
-  no `eval`, no CDN at runtime. `offscreen` is used only to turn captured text into a Blob URL
-  for local downloads.
+- **Least privilege.** `activeTab` + `scripting`; no `<all_urls>` at install time (only an
+  optional permission you can grant for cross-origin images), no remote code, no `eval`, no CDN
+  at runtime. `offscreen` is used only to turn captured text into a Blob URL for local downloads.
 - **Page content is untrusted.** Sanitize, never inject, never execute.
 - **Fail closed.** Every protocol limit is enforced by both sender and receiver.
 

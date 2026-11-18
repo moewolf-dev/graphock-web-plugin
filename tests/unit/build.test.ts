@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { unzipSync, strFromU8 } from 'fflate'
 import { base64ToBytes } from '@graphock/capture/base64'
-import { buildClip } from '../../apps/extension/src/background/build'
+import { buildClip, buildClipZip } from '../../apps/extension/src/background/build'
 import type { CollectedPage } from '../../apps/extension/src/shared/messages'
 
 function collectedPage(images: CollectedPage['images']): CollectedPage {
@@ -130,6 +131,27 @@ describe('buildClip', () => {
     })
     expect(result.content).toBe(snapshot)
     expect(result.payload.document.format).toBe('html')
+  })
+
+  it('builds a deterministic zip with document, manifest and assets', async () => {
+    const result = await buildClip(collectedPage([image()]), {
+      mode: 'readable',
+      imagePolicy: 'embed',
+      scheme: 'graphock-direct',
+      format: 'markdown',
+      generator
+    })
+    const first = buildClipZip(result)
+    const second = buildClipZip(result)
+    expect(Buffer.from(first).equals(Buffer.from(second))).toBe(true)
+
+    const entries = unzipSync(first)
+    expect(Object.keys(entries).sort()).toEqual(
+      ['document.md', 'manifest.json', 'assets/' + result.document.assets[0]!.path.split('/')[1]].sort()
+    )
+    const manifest = JSON.parse(strFromU8(entries['manifest.json']!))
+    expect(manifest.assets[0].path).toBe(result.document.assets[0]!.path)
+    expect(manifest.assets[0].data).toBeUndefined()
   })
 
   it('reports failed images as linked and counts them', async () => {
