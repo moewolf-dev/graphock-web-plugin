@@ -111,8 +111,10 @@ async function main() {
   const shippedManifest = JSON.parse(
     await readFile(join(root, 'apps/extension/dist/chrome/manifest.json'), 'utf8')
   )
-  const expected = ['activeTab', 'scripting', 'storage', 'downloads']
-  if (JSON.stringify(shippedManifest.permissions) !== JSON.stringify(expected)) {
+  const snapshot = JSON.parse(
+    await readFile(join(root, 'tooling/package/permissions.snapshot.json'), 'utf8')
+  )
+  if (JSON.stringify(shippedManifest.permissions) !== JSON.stringify(snapshot.permissions)) {
     fail(`unexpected permissions: ${JSON.stringify(shippedManifest.permissions)}`)
   }
   if ((shippedManifest.host_permissions ?? []).length > 0) {
