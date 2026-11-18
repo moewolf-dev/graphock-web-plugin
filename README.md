@@ -37,6 +37,7 @@ JSON/YAML exports from the extension UI, Safari packaging, store submission.
 ```bash
 pnpm install
 pnpm verify            # typecheck + 59 unit tests + build
+pnpm test:e2e          # real Chrome: load extension, capture a page, build a handoff URL
 pnpm build             # → apps/extension/dist/chrome
 pnpm package:chrome    # → artifacts/graphock-web-plugin-0.1.0-chrome.zip
 ```

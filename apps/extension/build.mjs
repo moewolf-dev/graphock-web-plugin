@@ -6,7 +6,8 @@ import vue from '@vitejs/plugin-vue'
 import { build as viteBuild } from 'vite'
 
 const root = dirname(fileURLToPath(import.meta.url))
-const outDir = resolve(root, 'dist/chrome')
+const e2e = process.env.E2E_HOST_PERMISSION === '1'
+const outDir = resolve(root, e2e ? 'dist/e2e' : 'dist/chrome')
 
 async function main() {
   await rm(outDir, { recursive: true, force: true })
@@ -50,11 +51,16 @@ async function main() {
   const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8'))
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
   manifest.version = pkg.version
+  if (e2e) {
+    // Test-only build: grants host access so the E2E suite can exercise a real
+    // capture without an action click. Never used for packaging.
+    manifest.host_permissions = ['<all_urls>']
+  }
   await writeFile(resolve(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 
   await cp(resolve(root, 'public'), outDir, { recursive: true })
 
-  process.stdout.write(`Built extension at ${outDir}\n`)
+  process.stdout.write(`Built extension at ${outDir}${e2e ? ' (E2E host permission)' : ''}\n`)
 }
 
 main().catch((error) => {

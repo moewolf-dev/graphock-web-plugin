@@ -68,11 +68,13 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
 
   try {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] })
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       code: 'E_INJECTION_FAILED',
-      message: 'This page does not allow content scripts (browser pages and the Web Store do not).'
+      message:
+        'This page does not allow content scripts (browser pages and the Web Store do not). ' +
+        `[tab=${tab.url ?? 'unknown'}; ${error instanceof Error ? error.message : 'unknown error'}]`
     }
   }
 

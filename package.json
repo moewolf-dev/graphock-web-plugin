@@ -15,7 +15,9 @@
     "test:watch": "vitest",
     "verify": "pnpm typecheck && pnpm test && pnpm build",
     "protocol:receive": "tsx packages/protocol-receiver/src/cli.ts",
-    "package:chrome": "node tooling/package/zip-chrome.mjs"
+    "package:chrome": "node tooling/package/zip-chrome.mjs",
+    "test:e2e": "E2E_HOST_PERMISSION=1 pnpm build && E2E_HOST_PERMISSION=1 node tests/e2e/smoke.mjs",
+    "build:e2e": "E2E_HOST_PERMISSION=1 pnpm build"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",
@@ -24,6 +26,7 @@
     "@types/node": "^22.10.2",
     "@vitejs/plugin-vue": "^5.2.1",
     "jsdom": "^25.0.1",
+    "playwright-core": "^1.65.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
