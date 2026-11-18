@@ -1,0 +1,23 @@
+node_modules/
+dist/
+dist-*/
+coverage/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+# Never commit signing material
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.p8
+*.cer
+*.base64
+!README.md
+.idea/
+.vscode/*
+!.vscode/extensions.json
+tmp/
+artifacts/

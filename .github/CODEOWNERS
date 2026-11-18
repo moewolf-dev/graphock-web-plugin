@@ -1,0 +1,8 @@
+# Default owner for everything in the repo.
+* @moewolf-dev
+
+# Protocol and security-sensitive areas need an explicit review.
+/docs/protocol/            @moewolf-dev
+/packages/handoff/         @moewolf-dev
+/packages/protocol-receiver/ @moewolf-dev
+/tooling/package/          @moewolf-dev

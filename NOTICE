@@ -1,0 +1,19 @@
+Graphock Web Clipper
+Copyright 2026 Graphock contributors
+
+This product includes software developed at Graphock (https://graphock.com).
+
+Third-party components:
+
+- fflate — MIT — https://github.com/101arrowz/fflate
+- js-yaml — MIT — https://github.com/nodeca/js-yaml
+- zod — MIT — https://github.com/colinhacks/zod
+- Vue.js — MIT — https://github.com/vuejs/core
+- Vite — MIT — https://github.com/vitejs/vite
+- Vitest — MIT — https://github.com/vitest-dev/vitest
+- jsdom — MIT — https://github.com/jsdom/jsdom
+- Playwright — Apache-2.0 — https://github.com/microsoft/playwright
+- Mozilla Readability — Apache-2.0 — https://github.com/mozilla/readability (planned dependency)
+
+Reference-only projects (not bundled, not linked) are documented in
+`docs/reference-web-extensions/` together with their original licenses.

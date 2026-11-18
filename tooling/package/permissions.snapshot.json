@@ -1,0 +1,7 @@
+{
+  "manifestVersion": 3,
+  "permissions": ["activeTab", "scripting", "storage", "downloads"],
+  "hostPermissions": [],
+  "optionalPermissions": [],
+  "optionalHostPermissions": []
+}

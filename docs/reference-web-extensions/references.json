@@ -1,0 +1,74 @@
+{
+  "schema": "graphock.reference-extensions/1",
+  "updatedAt": "2026-11-18",
+  "policy": {
+    "source": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"],
+    "notesOnly": ["GPL-2.0", "GPL-3.0", "AGPL-3.0", "unknown", "custom"]
+  },
+  "references": [
+    {
+      "name": "obsidian-web-clipper",
+      "repo": "https://github.com/obsidianmd/obsidian-clipper",
+      "license": "MIT",
+      "policy": "source",
+      "why": "MV3 architecture, template variables, settings density, store compliance writing",
+      "pin": null
+    },
+    {
+      "name": "markdownload",
+      "repo": "https://github.com/deathau/markdownload",
+      "license": "MIT",
+      "policy": "source",
+      "why": "Readability to Markdown pipeline, frontmatter, filename rules",
+      "pin": null
+    },
+    {
+      "name": "defuddle",
+      "repo": "https://github.com/kepano/defuddle",
+      "license": "MIT",
+      "policy": "source",
+      "why": "Modern readable extraction; compare with Readability in V-04",
+      "pin": null
+    },
+    {
+      "name": "wallabag-browser-extension",
+      "repo": "https://github.com/wallabag/wallabag",
+      "license": "MIT",
+      "policy": "source",
+      "why": "End-to-end save-then-organize flow, error states",
+      "pin": null
+    },
+    {
+      "name": "singlefile",
+      "repo": "https://github.com/gildas-lormeau/SingleFile",
+      "license": "AGPL-3.0",
+      "policy": "notes",
+      "why": "Full-page single-file capture: CSS inlining, images, frames, shadow DOM",
+      "pin": null
+    },
+    {
+      "name": "omnivore",
+      "repo": "https://github.com/omnivore-app/omnivore",
+      "license": "AGPL-3.0",
+      "policy": "notes",
+      "why": "Selection and highlight interaction",
+      "pin": null
+    },
+    {
+      "name": "readability",
+      "repo": "https://github.com/mozilla/readability",
+      "license": "Apache-2.0",
+      "policy": "dependency",
+      "why": "Readable extraction library (planned dependency, not vendored here)",
+      "pin": null
+    },
+    {
+      "name": "turndown",
+      "repo": "https://github.com/mixmark-io/turndown",
+      "license": "MIT",
+      "policy": "dependency",
+      "why": "HTML to Markdown (candidate; current serializer is model-based)",
+      "pin": null
+    }
+  ]
+}

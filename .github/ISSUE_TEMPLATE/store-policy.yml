@@ -1,0 +1,26 @@
+name: Store policy / review issue
+description: Chrome Web Store or Mac App Store review feedback
+labels: [store]
+body:
+  - type: dropdown
+    id: store
+    attributes:
+      label: Store
+      options: [Chrome Web Store, Mac App Store, Both]
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Reviewer feedback (verbatim)
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Which code or document does this map to?
+      placeholder: permissions snapshot / privacy policy / manifest description
+  - type: textarea
+    id: plan
+    attributes:
+      label: Planned response

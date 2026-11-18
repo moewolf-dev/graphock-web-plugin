@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "chrome"],
+    "baseUrl": ".",
+    "paths": {
+      "@graphock/clip-model": ["packages/clip-model/src/index.ts"],
+      "@graphock/handoff": ["packages/handoff/src/index.ts"],
+      "@graphock/protocol-receiver": ["packages/protocol-receiver/src/index.ts"],
+      "@graphock/converters": ["packages/converters/src/index.ts"],
+      "@graphock/capture": ["packages/capture/src/index.ts"],
+      "@graphock/capture/*": ["packages/capture/src/*"]
+    }
+  },
+  "include": [
+    "packages/**/*.ts",
+    "apps/**/*.ts",
+    "apps/**/*.vue",
+    "tests/**/*.ts",
+    "tooling/**/*.mjs",
+    "vitest.config.ts",
+    "apps/extension/vite.config.ts"
+  ],
+  "exclude": ["**/node_modules", "**/dist"]
+}
