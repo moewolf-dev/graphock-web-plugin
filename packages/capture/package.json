@@ -9,9 +9,12 @@
     ".": "./src/index.ts",
     "./metadata": "./src/metadata.ts",
     "./sanitize": "./src/sanitize.ts",
-    "./assets": "./src/assets.ts"
+    "./assets": "./src/assets.ts",
+    "./readable": "./src/readable.ts",
+    "./blocks": "./src/blocks.ts"
   },
   "dependencies": {
-    "@graphock/clip-model": "workspace:*"
+    "@graphock/clip-model": "workspace:*",
+    "@mozilla/readability": "^0.6.0"
   }
 }

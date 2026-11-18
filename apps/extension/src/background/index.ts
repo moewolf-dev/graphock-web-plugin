@@ -41,9 +41,11 @@ function textToBlocks(text: string): Block[] {
 }
 
 function buildDocument(collected: CollectedPage, mode: CaptureRequest['mode']): ClipDocument {
+  const bodyBlocks =
+    collected.blocks.length > 0 ? collected.blocks : textToBlocks(collected.text)
   const blocks: Block[] = [
     { type: 'heading', level: 1, text: collected.source.title },
-    ...textToBlocks(collected.text)
+    ...bodyBlocks
   ]
   return {
     schema: 'graphock.clip.document/1',

@@ -5,6 +5,14 @@ export type CollectMessage = {
   mode: CaptureMode
 }
 
+export type CollectedImage = {
+  assetId: string
+  sourceUrl: string
+  alt: string
+  width?: number
+  height?: number
+}
+
 export type CollectedPage = {
   source: {
     url: string
@@ -16,6 +24,9 @@ export type CollectedPage = {
     siteName?: string
     faviconUrl?: string
   }
+  blocks: import('@graphock/clip-model').Block[]
+  images: CollectedImage[]
+  readable: boolean
   text: string
   selectionText: string
   htmlBytes: number
