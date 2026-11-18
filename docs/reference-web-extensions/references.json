@@ -2,8 +2,20 @@
   "schema": "graphock.reference-extensions/1",
   "updatedAt": "2026-11-18",
   "policy": {
-    "source": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"],
-    "notesOnly": ["GPL-2.0", "GPL-3.0", "AGPL-3.0", "unknown", "custom"]
+    "source": [
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC"
+    ],
+    "notesOnly": [
+      "GPL-2.0",
+      "GPL-3.0",
+      "AGPL-3.0",
+      "unknown",
+      "custom"
+    ]
   },
   "references": [
     {
@@ -12,15 +24,15 @@
       "license": "MIT",
       "policy": "source",
       "why": "MV3 architecture, template variables, settings density, store compliance writing",
-      "pin": null
+      "pin": "6d56d618b00bd970aa738d6a7a61edee27783e81"
     },
     {
       "name": "markdownload",
       "repo": "https://github.com/deathau/markdownload",
-      "license": "MIT",
+      "license": "Apache-2.0",
       "policy": "source",
       "why": "Readability to Markdown pipeline, frontmatter, filename rules",
-      "pin": null
+      "pin": "7e8cc1a2156a5b413db133677641c3f8a23cd39d"
     },
     {
       "name": "defuddle",
@@ -28,7 +40,7 @@
       "license": "MIT",
       "policy": "source",
       "why": "Modern readable extraction; compare with Readability in V-04",
-      "pin": null
+      "pin": "3e8bde9f5f855bc968e95837a750c5968a9fe639"
     },
     {
       "name": "wallabag-browser-extension",
@@ -44,7 +56,7 @@
       "license": "AGPL-3.0",
       "policy": "notes",
       "why": "Full-page single-file capture: CSS inlining, images, frames, shadow DOM",
-      "pin": null
+      "pin": "0fcda61333ffed384f8206d13ee62a33b9634df6"
     },
     {
       "name": "omnivore",
@@ -52,7 +64,7 @@
       "license": "AGPL-3.0",
       "policy": "notes",
       "why": "Selection and highlight interaction",
-      "pin": null
+      "pin": "047503870b3b3568da4776c68bdf029cb5e58476"
     },
     {
       "name": "readability",

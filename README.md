@@ -99,6 +99,12 @@ pnpm protocol:receive --out ./tmp/clips --url 'graphock-direct://import#p=v1....
 - **Page content is untrusted.** Sanitize, never inject, never execute.
 - **Fail closed.** Every protocol limit is enforced by both sender and receiver.
 
+## Reference products
+
+`docs/reference-web-extensions/` contains pinned, read-only snapshots of mature clippers
+(Obsidian Web Clipper, MarkDownload, Defuddle) and notes-only records for AGPL projects
+(SingleFile, Omnivore). Nothing there is bundled. See each `NOTES.md` for what we borrow.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Commits must be signed off (DCO). Security issues:

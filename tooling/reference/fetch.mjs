@@ -101,6 +101,7 @@ try {
 await rm(destination, { recursive: true, force: true })
 await mkdir(destination, { recursive: true })
 run('cp', ['-R', `${temp}/.`, destination])
+await rm(join(destination, '.git'), { recursive: true, force: true })
 await writeFile(
   join(destination, 'PIN.json'),
   `${JSON.stringify({ repo: reference.repo, commit, licenseLine: license, fetchedAt: new Date().toISOString(), policy: reference.policy }, null, 2)}\n`

@@ -1,0 +1,10 @@
+.DS_Store
+.cursorrules
+.context
+
+node_modules/
+
+dist/
+.wrangler/
+.dev.vars
+website/public/build/
