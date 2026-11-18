@@ -4,7 +4,7 @@ A browser extension that saves the page you are reading as a clean local file, o
 straight to the [Graphock](https://graphock.com) desktop app.
 
 - **Chrome / Edge / Brave** (Manifest V3)
-- **Safari** (macOS 13.3+, Safari 16.4+) — in progress
+- **Safari** (macOS 13.3+, Safari 16.4+) — container project builds; store submission pending
 - **No account, no telemetry, no server**: the page never leaves your device.
 
 > Status: `0.1.0` — developer preview. See [docs/TODO](../docs) in the main repository for the
@@ -43,6 +43,7 @@ pnpm verify            # typecheck + 75 unit tests + build
 pnpm test:e2e          # real Chrome: load extension, capture a page, build a handoff URL
 pnpm build             # → apps/extension/dist/chrome
 pnpm package:chrome    # → artifacts/graphock-web-plugin-0.1.0-chrome.zip
+pnpm safari:project    # → apps/safari (Xcode container, requires Xcode)
 ```
 
 Load it in Chrome:

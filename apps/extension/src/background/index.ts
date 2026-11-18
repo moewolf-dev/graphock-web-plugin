@@ -21,6 +21,29 @@ const GENERATOR_VERSION = '0.1.0'
 const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024
 const MAX_PACKAGE_BYTES = 12 * 1024 * 1024
 const FILE_CHANNEL_UNAVAILABLE_SCHEMES = new Set(['graphock'])
+const MAX_PAGE_SAVE_BYTES = 5 * 1024 * 1024
+
+function hasDownloadsApi(): boolean {
+  return typeof chrome.downloads?.download === 'function'
+}
+
+function hasOffscreenApi(): boolean {
+  return typeof chrome.offscreen?.createDocument === 'function'
+}
+
+/** Safari fallback: hand the file to an extension page and let it download. */
+async function saveViaPage(content: string, filename: string, mime: string): Promise<void> {
+  const bytes = new TextEncoder().encode(content)
+  if (bytes.byteLength > MAX_PAGE_SAVE_BYTES) {
+    throw new ProtocolError(
+      'E_LIMIT_EXCEEDED',
+      `This browser cannot save files larger than ${MAX_PAGE_SAVE_BYTES / 1024 / 1024} MB. Try a smaller format.`
+    )
+  }
+  const id = crypto.randomUUID()
+  await chrome.storage.local.set({ [`graphock:save:${id}`]: { content, filename, mime } })
+  await chrome.tabs.create({ url: chrome.runtime.getURL(`save.html?id=${id}`) })
+}
 
 async function getSettings(): Promise<Settings> {
   const stored = await chrome.storage.local.get('settings')
@@ -69,6 +92,10 @@ async function downloadText(
   filename: string,
   mime: string
 ): Promise<{ id: number }> {
+  if (!hasDownloadsApi() || !hasOffscreenApi()) {
+    await saveViaPage(content, filename, mime)
+    return { id: -1 }
+  }
   await ensureOffscreen()
   const created = (await chrome.runtime.sendMessage({
     type: 'GRAPHOCK_OFFSCREEN_CREATE',
@@ -112,6 +139,12 @@ async function savePackage(
   clipId: string,
   settings: Settings
 ): Promise<{ path: string; filename: string }> {
+  if (!hasDownloadsApi()) {
+    throw new ProtocolError(
+      'E_CHANNEL_UNAVAILABLE',
+      'This browser cannot hand a package file to the app. Use “Save file” instead.'
+    )
+  }
   const json = serializePayload(payload)
   const bytes = new TextEncoder().encode(json)
   if (bytes.byteLength > MAX_PACKAGE_BYTES) {
@@ -194,7 +227,7 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
 
   let built: BuildResult = await buildClip(collected, options)
 
-  const canUseFileChannel = !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
+  const canUseFileChannel = hasDownloadsApi() && !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
 
   // Embedded images rarely fit in a 24k-character URL. When the target build
   // can read a file, save the package and pass its path; MAS cannot, so it
@@ -294,7 +327,7 @@ async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: 
     subdirectory ? `${subdirectory}/${filename}` : filename,
     meta.mime
   )
-  await waitForDownload(id)
+  if (id >= 0) await waitForDownload(id)
   return { ok: true, filename }
 }
 

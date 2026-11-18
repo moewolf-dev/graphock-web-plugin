@@ -17,7 +17,9 @@
     "protocol:receive": "tsx packages/protocol-receiver/src/cli.ts",
     "package:chrome": "node tooling/package/zip-chrome.mjs",
     "test:e2e": "E2E_HOST_PERMISSION=1 pnpm build && E2E_HOST_PERMISSION=1 node tests/e2e/smoke.mjs",
-    "build:e2e": "E2E_HOST_PERMISSION=1 pnpm build"
+    "build:e2e": "E2E_HOST_PERMISSION=1 pnpm build",
+    "build:safari": "SAFARI=1 pnpm --filter @graphock/extension build",
+    "safari:project": "node tooling/build/safari-project.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",

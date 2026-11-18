@@ -13,6 +13,8 @@ All notable changes are documented here. This project follows [Semantic Versioni
 - File handoff channel for large clips (Direct builds) with automatic MAS degradation.
 - Reference snapshots of Obsidian Web Clipper, MarkDownload and Defuddle at pinned commits,
   plus notes-only records for SingleFile and Omnivore.
+- Safari container project generated from the Safari build variant (classic service worker,
+  no downloads/offscreen APIs, save-page fallback), with an idempotent regeneration script.
 - Protocol v1 spec (`docs/protocol/CUSTOM_PROTOCOL_IMPORT.md`) with inline/file/wake channels.
 - `@graphock/clip-model`: document model, zod schema, canonical JSON, checksums.
 - `@graphock/handoff`: URL builder/parser, DEFLATE + base64url encoding, limits, error codes.

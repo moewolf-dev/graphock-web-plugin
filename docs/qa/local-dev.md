@@ -40,17 +40,15 @@ pnpm build
 前置：Xcode（App Store 安装即可）、Safari 16.4+、macOS 13.3+。
 
 ```bash
-# 生成 Xcode 容器工程（首次或 manifest 变化时）
-xcrun safari-web-extension-converter apps/extension/dist/chrome \
-  --project-location apps/safari \
-  --app-name "Graphock Web Clipper" \
-  --bundle-identifier com.moewolf.graphock.webclip \
-  --macos-only --no-open
+# 生成 Xcode 容器工程（首次或 manifest 变化时；会先构建 dist/safari）
+pnpm safari:project
 ```
+
+生成结果与验证记录见 [`safari-2026-11-18.md`](./safari-2026-11-18.md)。
 
 然后在 Xcode 中：
 
-1. 打开生成的 `apps/safari/Graphock Web Clipper.xcodeproj`。
+1. 打开 `apps/safari/Graphock Web Clipper/Graphock Web Clipper.xcodeproj`。
 2. 选择容器 App target → Signing & Capabilities → Team 选 **None**（或自己的个人团队），
    Signing Certificate 选 **Sign to Run Locally**。
 3. 运行容器 App（⌘R）。首次运行后关闭。

@@ -6,8 +6,9 @@ import vue from '@vitejs/plugin-vue'
 import { build as viteBuild } from 'vite'
 
 const root = dirname(fileURLToPath(import.meta.url))
+const safari = process.argv.includes('--safari') || process.env.SAFARI === '1'
 const e2e = process.env.E2E_HOST_PERMISSION === '1'
-const outDir = resolve(root, e2e ? 'dist/e2e' : 'dist/chrome')
+const outDir = resolve(root, safari ? 'dist/safari' : e2e ? 'dist/e2e' : 'dist/chrome')
 
 async function main() {
   await rm(outDir, { recursive: true, force: true })
@@ -27,8 +28,9 @@ async function main() {
         input: {
           popup: resolve(root, 'popup.html'),
           options: resolve(root, 'options.html'),
-          background: resolve(root, 'src/background/index.ts'),
-          offscreen: resolve(root, 'src/offscreen/main.ts')
+          ...(safari ? {} : { background: resolve(root, 'src/background/index.ts') }),
+          ...(safari ? {} : { offscreen: resolve(root, 'src/offscreen/main.ts') }),
+          save: resolve(root, 'src/save/main.ts')
         },
         output: {
           entryFileNames: '[name].js',
@@ -49,6 +51,19 @@ async function main() {
     logLevel: 'warning'
   })
 
+  // Safari does not support `"type": "module"` service workers, so the Safari
+  // build ships a single self-contained classic background script.
+  if (safari) {
+    await esbuild({
+      entryPoints: [resolve(root, 'src/background/index.ts')],
+      bundle: true,
+      format: 'iife',
+      target: 'safari16',
+      outfile: resolve(outDir, 'background.js'),
+      logLevel: 'warning'
+    })
+  }
+
   const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8'))
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
   manifest.version = pkg.version
@@ -57,11 +72,21 @@ async function main() {
     // capture without an action click. Never used for packaging.
     manifest.host_permissions = ['<all_urls>']
   }
+  if (safari) {
+    // Safari has no downloads API and no offscreen documents. The runtime
+    // detects this and falls back to a save page (see background).
+    manifest.permissions = (manifest.permissions ?? []).filter(
+      (permission) => permission !== 'downloads' && permission !== 'offscreen'
+    )
+    delete manifest.minimum_chrome_version
+    delete manifest.background.type
+    if (manifest.options_ui) delete manifest.options_ui.open_in_tab
+  }
   await writeFile(resolve(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 
   await cp(resolve(root, 'public'), outDir, { recursive: true })
 
-  process.stdout.write(`Built extension at ${outDir}${e2e ? ' (E2E host permission)' : ''}\n`)
+  process.stdout.write(`Built extension at ${outDir}${e2e ? ' (E2E host permission)' : ''}${safari ? ' (Safari)' : ''}\n`)
 }
 
 main().catch((error) => {
