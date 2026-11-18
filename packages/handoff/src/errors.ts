@@ -19,6 +19,7 @@ export type ProtocolErrorCode =
   | 'E_DOWNLOAD_TIMEOUT'
   | 'E_PACKAGE_TOO_LARGE'
   | 'E_PACKAGE_FAILED'
+  | 'E_DOWNLOAD_FAILED'
 
 export class ProtocolError extends Error {
   readonly code: ProtocolErrorCode

@@ -7,13 +7,13 @@
 | Requirement | Our position | Evidence |
 | --- | --- | --- |
 | Single purpose | Save the current page to a local file or hand it to the Graphock desktop app | Manifest description, popup UI |
-| Minimum permissions | `activeTab`, `scripting`, `storage`, `downloads` | `tooling/package/permissions.snapshot.json` |
+| Minimum permissions | `activeTab`, `scripting`, `storage`, `downloads`, `offscreen` | `tooling/package/permissions.snapshot.json` |
 | No host permissions by default | No `<all_urls>`; optional permission only for cross-origin image embedding | manifest + ADR 0005 |
 | No remote code | All code bundled; CSP default; no CDN | packaging test, `dist` inspection |
 | Data disclosure | Website content is processed locally, never transmitted | privacy policy |
 | Account | None | no auth code |
 | Ads / analytics | None | no network calls in extension |
-| Permission justification | Each permission explained in the listing | store listing draft |
+| Permission justification | Each permission explained in the listing; `offscreen` is used only to create a Blob URL for local downloads (MV3 service workers cannot) | store listing draft |
 
 Open questions to confirm during V-05:
 

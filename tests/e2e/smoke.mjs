@@ -65,7 +65,21 @@ async function serve() {
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64'
   )
+  const big = Buffer.alloc(220_000)
+  for (let index = 0; index < big.length; index += 1) big[index] = (index * 31) % 256
   const server = createServer((request, response) => {
+    if (request.url === '/big.png') {
+      response.writeHead(200, { 'content-type': 'image/png', 'content-length': big.length })
+      response.end(big)
+      return
+    }
+    if (request.url === '/big') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end(`<!doctype html><html><head><title>Big clip</title></head><body>
+        <main><h1>Big clip</h1><p>This page carries a large image so the inline channel cannot hold it.</p>
+        <img src="/big.png" alt="Large"></main></body></html>`)
+      return
+    }
     if (request.url === '/style.css') {
       response.writeHead(200, { 'content-type': 'text/css' })
       response.end('body { color: rgb(18, 52, 86); } .marker { border-left: 3px solid teal; }')
@@ -118,6 +132,9 @@ async function main() {
     // MV3 extensions are reliable only in headful Chrome today; CI wraps this
     // script with xvfb. Set HEADLESS=1 only for experiments.
     headless: process.env.HEADLESS === '1',
+    // Playwright intercepts downloads into its artifact folder, which is fine:
+    // chrome.downloads still reports completion and the test can read the file.
+    acceptDownloads: true,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
@@ -203,6 +220,119 @@ async function main() {
     console.log(
       `e2e:smoke: full-page HTML ${Math.round(htmlResult.content.length / 1024)} KB, channel=${htmlResult.channel}`
     )
+
+    // Selection mode only captures the selected range.
+    await page.bringToFront()
+    await page.evaluate(() => {
+      const paragraph = document.querySelector('p')
+      if (!paragraph) throw new Error('missing paragraph')
+      const range = document.createRange()
+      range.selectNodeContents(paragraph)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    })
+    const selectionResult = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'selection', format: 'markdown' })
+    )
+    if (!selectionResult?.ok) {
+      console.error('e2e:smoke: selection result:', selectionResult)
+      throw new Error('selection capture failed')
+    }
+    if (!selectionResult.content.includes('Hello from the local test server')) {
+      fail('selection capture did not include the selected paragraph')
+    }
+    if (selectionResult.content.includes('A pixel')) {
+      fail('selection capture leaked content outside the selection')
+    }
+
+    // Link-only image policy must not embed bytes.
+    await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get('settings')
+      await chrome.storage.local.set({
+        settings: { ...(stored.settings ?? {}), imagePolicy: 'link' }
+      })
+    })
+    const linkResult = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'readable', format: 'json' })
+    )
+    if (!linkResult?.ok || linkResult.embeddedAssets !== 0 || linkResult.linkedAssets < 1) {
+      console.error('e2e:smoke: link result:', linkResult)
+      throw new Error('link-only image policy failed')
+    }
+    const parsedLink = JSON.parse(linkResult.content)
+    if (!JSON.stringify(parsedLink.assets).includes('http://127.0.0.1')) {
+      fail('linked image asset lost its source URL')
+    }
+
+    // Save flow: ask the worker to write a file and confirm the download.
+    const baseline = await popup.evaluate(() =>
+      chrome.downloads.search({}).then((items) => items.map((item) => item.id))
+    )
+    const saveResult = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({
+        type: 'GRAPHOCK_SAVE',
+        content: '# Saved from e2e\n',
+        format: 'json',
+        title: 'E2E save',
+        clipId: '44444444-4444-4444-8444-444444444444'
+      })
+    )
+    if (!saveResult?.ok || !saveResult.filename?.endsWith('.json')) {
+      console.error('e2e:smoke: save result:', saveResult)
+      throw new Error('save flow failed')
+    }
+    const savedItems = await popup.evaluate(() => chrome.downloads.search({}))
+    const savedList = savedItems.filter(
+      (item) => !baseline.includes(item.id) && item.state === 'complete' && item.filename
+    )
+    if (savedList.length === 0) {
+      console.error('e2e:smoke: save debug:', JSON.stringify({ saveResult, savedItems }))
+      throw new Error('saved file was not completed')
+    }
+    const savedText = await readFile(savedList[savedList.length - 1].filename, 'utf8')
+    if (!savedText.includes('Saved from e2e')) {
+      fail('saved file content does not match what was requested')
+    }
+
+    // Large embedded clip: inline URL must fail, file channel must save a package.
+    await page.goto(url + 'big')
+    await page.bringToFront()
+    await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get('settings')
+      await chrome.storage.local.set({
+        settings: { ...(stored.settings ?? {}), imagePolicy: 'embed' }
+      })
+    })
+    const bigResult = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'readable', format: 'markdown' })
+    )
+    if (!bigResult?.ok || bigResult.channel !== 'file') {
+      console.error('e2e:smoke: big result:', bigResult)
+      throw new Error('large clip did not use the file channel')
+    }
+    if (!bigResult.savedFilename?.endsWith('.graphock-clip.json')) {
+      fail('large clip did not save a .graphock-clip.json package')
+    }
+    if (!bigResult.url.startsWith('graphock-direct://import?file=')) {
+      fail(`unexpected file-channel URL: ${bigResult.url.slice(0, 60)}`)
+    }
+
+    // Clean up files this test created in the real download folder.
+    await popup.evaluate(async (filenames) => {
+      const items = await chrome.downloads.search({})
+      for (const item of items) {
+        if (!filenames.some((name) => item.filename.endsWith(name))) continue
+        try {
+          await chrome.downloads.removeFile(item.id)
+        } catch {
+          // best effort
+        }
+        await chrome.downloads.erase({ id: item.id })
+      }
+    }, [saveResult.filename, bigResult.savedFilename])
+
+    console.log('e2e:smoke: selection, link policy, save and file channel OK')
 
     if (errors.length > 0) fail(`page errors:\n${errors.join('\n')}`)
     console.log('e2e:smoke: OK (extension loaded, popup and options rendered)')

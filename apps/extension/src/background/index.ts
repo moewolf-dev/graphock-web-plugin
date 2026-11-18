@@ -31,6 +31,29 @@ function downloadSubdirectory(settings: Settings): string {
   return settings.downloadSubdirectory.trim().replace(/^\/+|\/+$/gu, '')
 }
 
+let creatingOffscreen: Promise<void> | null = null
+
+/**
+ * Ensure the offscreen download helper exists. Service workers cannot create
+ * Blob URLs, and Chrome interrupts `data:` downloads, so all file writes go
+ * through this document.
+ */
+async function ensureOffscreen(): Promise<void> {
+  if (await chrome.offscreen.hasDocument()) return
+  if (!creatingOffscreen) {
+    creatingOffscreen = chrome.offscreen
+      .createDocument({
+        url: 'offscreen.html',
+        reasons: [chrome.offscreen.Reason.BLOBS ?? 'BLOBS'],
+        justification: 'Create a blob URL to download the captured page or clip package.'
+      })
+      .finally(() => {
+        creatingOffscreen = null
+      })
+  }
+  await creatingOffscreen
+}
+
 function download(options: chrome.downloads.DownloadOptions): Promise<number> {
   return new Promise((resolve, reject) => {
     chrome.downloads.download(options, (downloadId) => {
@@ -39,6 +62,35 @@ function download(options: chrome.downloads.DownloadOptions): Promise<number> {
       else resolve(downloadId)
     })
   })
+}
+
+async function downloadText(
+  content: string,
+  filename: string,
+  mime: string
+): Promise<{ id: number }> {
+  await ensureOffscreen()
+  const created = (await chrome.runtime.sendMessage({
+    type: 'GRAPHOCK_OFFSCREEN_CREATE',
+    content,
+    mime
+  })) as { ok?: boolean; url?: string; message?: string } | undefined
+  if (!created?.ok || !created.url) {
+    throw new ProtocolError(
+      'E_DOWNLOAD_FAILED',
+      created?.message ?? 'The offscreen helper did not create a download blob'
+    )
+  }
+  try {
+    const id = await download({ url: created.url, filename, saveAs: false })
+    return { id }
+  } catch (error) {
+    await chrome.runtime.sendMessage({ type: 'GRAPHOCK_OFFSCREEN_REVOKE', url: created.url })
+    throw new ProtocolError(
+      'E_DOWNLOAD_FAILED',
+      error instanceof Error ? error.message : 'Download failed'
+    )
+  }
 }
 
 async function waitForDownload(id: number): Promise<chrome.downloads.DownloadItem> {
@@ -75,12 +127,11 @@ async function savePackage(
     extension: 'graphock-clip.json'
   })
   const subdirectory = downloadSubdirectory(settings)
-  const dataUrl = `data:application/json;charset=utf-8,${encodeURIComponent(json)}`
-  const id = await download({
-    url: dataUrl,
-    filename: subdirectory ? `${subdirectory}/${filename}` : filename,
-    saveAs: false
-  })
+  const { id } = await downloadText(
+    json,
+    subdirectory ? `${subdirectory}/${filename}` : filename,
+    'application/json'
+  )
   const item = await waitForDownload(id)
   return { path: item.filename, filename }
 }
@@ -238,12 +289,12 @@ async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: 
     extension: meta.extension
   })
   const subdirectory = downloadSubdirectory(settings)
-  const dataUrl = `data:${meta.mime};charset=utf-8,${encodeURIComponent(request.content)}`
-  await download({
-    url: dataUrl,
-    filename: subdirectory ? `${subdirectory}/${filename}` : filename,
-    saveAs: false
-  })
+  const { id } = await downloadText(
+    request.content,
+    subdirectory ? `${subdirectory}/${filename}` : filename,
+    meta.mime
+  )
+  await waitForDownload(id)
   return { ok: true, filename }
 }
 

@@ -95,7 +95,8 @@ pnpm protocol:receive --out ./tmp/clips --url 'graphock-direct://import#p=v1....
 - **One model, many formats.** Every serializer reads `ClipDocument`; no second extraction
   pipeline (see [ADR 0002](docs/adr/0002-converter-stack.md)).
 - **Least privilege.** `activeTab` + `scripting`; no `<all_urls>` by default, no remote code,
-  no `eval`, no CDN at runtime.
+  no `eval`, no CDN at runtime. `offscreen` is used only to turn captured text into a Blob URL
+  for local downloads.
 - **Page content is untrusted.** Sanitize, never inject, never execute.
 - **Fail closed.** Every protocol limit is enforced by both sender and receiver.
 

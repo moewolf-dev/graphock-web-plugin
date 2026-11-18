@@ -27,7 +27,8 @@ async function main() {
         input: {
           popup: resolve(root, 'popup.html'),
           options: resolve(root, 'options.html'),
-          background: resolve(root, 'src/background/index.ts')
+          background: resolve(root, 'src/background/index.ts'),
+          offscreen: resolve(root, 'src/offscreen/main.ts')
         },
         output: {
           entryFileNames: '[name].js',

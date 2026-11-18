@@ -1,6 +1,12 @@
 {
   "manifestVersion": 3,
-  "permissions": ["activeTab", "scripting", "storage", "downloads"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "offscreen"
+  ],
   "hostPermissions": [],
   "optionalPermissions": [],
   "optionalHostPermissions": []
