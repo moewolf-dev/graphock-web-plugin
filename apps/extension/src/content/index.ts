@@ -3,6 +3,7 @@ import { buildPageSnapshot, collectStyles } from './snapshot'
 import { extractMetadata } from '@graphock/capture/metadata'
 import { cloneForExport, measureDom } from '@graphock/capture/dom'
 import { extractReadable } from '@graphock/capture/readable'
+import { createLogger } from '../shared/logger'
 import { sanitizeElement } from '@graphock/capture/sanitize'
 import type { Block } from '@graphock/clip-model'
 import type {
@@ -20,6 +21,10 @@ declare global {
 
 const MAX_TEXT_CHARS = 400_000
 const MIN_READABLE_CHARS = 200
+// Readability is O(document); skip it on dashboard-sized pages where the
+// fallback (sanitised body) is both faster and usually more useful.
+const MAX_READABLE_NODES = 25_000
+const log = createLogger('content')
 
 function countNodes(root: Node): number {
   let count = 0
@@ -40,8 +45,12 @@ function selectionRoot(): Element | null {
 }
 
 async function collect(mode: CaptureMode, imagePolicy: 'embed' | 'link' | 'skip'): Promise<CollectedPage> {
+  const started = performance.now()
   const metadata = extractMetadata(document, location.href)
+  const measureStart = performance.now()
   const size = measureDom(document.body ?? document.documentElement)
+  const measureMs = performance.now() - measureStart
+  log.info('measure', { nodes: size.nodes, depth: size.depth, tooLarge: size.tooLarge, measureMs })
   if (mode !== 'selection' && size.tooLarge) {
     return {
       source: metadata,
@@ -55,7 +64,13 @@ async function collect(mode: CaptureMode, imagePolicy: 'embed' | 'link' | 'skip'
       nodeCount: size.nodes
     }
   }
-  const readable = mode === 'readable' ? extractReadable(document) : { ok: false, content: null, textLength: 0 }
+  const readableStart = performance.now()
+  const canRead = mode === 'readable' && size.nodes <= MAX_READABLE_NODES
+  if (mode === 'readable' && !canRead) log.warn('readable-skipped', { nodes: size.nodes })
+  const readable = canRead
+    ? extractReadable(document)
+    : { ok: false, content: null, textLength: 0 }
+  const readableMs = performance.now() - readableStart
 
   let root: Element
   if (mode === 'selection') {
@@ -80,22 +95,28 @@ async function collect(mode: CaptureMode, imagePolicy: 'embed' | 'link' | 'skip'
   }
 
   // Include open shadow roots and iframe placeholders before sanitizing.
+  const cloneStart = performance.now()
   const raw = cloneForExport(root)
   const cleaned = sanitizeElement(raw, { stripStyles: false })
+  const cloneMs = performance.now() - cloneStart
 
+  const blocksStart = performance.now()
   const { blocks, images } = htmlToBlocks(cleaned, {
     includeImages: true,
     skipChrome: mode === 'full'
   })
+  const blocksMs = performance.now() - blocksStart
   // The background worker fetches image bytes: it has the optional host
   // permission and is not subject to the page's CORS restrictions.
   const fetched = images
 
+  const stylesStart = performance.now()
   let html: string | undefined
   if (mode === 'full' && imagePolicy !== 'skip') {
     const styles = imagePolicy === 'embed' ? await collectStyles(document) : ''
     html = buildPageSnapshot(document, cleaned, styles, fetched)
   }
+  const stylesMs = performance.now() - stylesStart
 
   const text = (cleaned.textContent ?? '').replace(/\s+/gu, ' ').trim().slice(0, MAX_TEXT_CHARS)
   const selection = window.getSelection()
@@ -118,7 +139,15 @@ async function collect(mode: CaptureMode, imagePolicy: 'embed' | 'link' | 'skip'
     text,
     selectionText,
     htmlBytes: cleaned.innerHTML.length,
-    nodeCount: countNodes(cleaned)
+    nodeCount: countNodes(cleaned),
+    timings: {
+      measureMs,
+      readableMs,
+      cloneMs,
+      blocksMs,
+      stylesMs,
+      totalMs: performance.now() - started
+    }
   }
 }
 

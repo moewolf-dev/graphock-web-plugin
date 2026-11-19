@@ -15,6 +15,7 @@ export type FetchImagesOptions = {
   timeoutMs?: number
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  concurrency?: number
 }
 
 const DEFAULTS = {
@@ -78,68 +79,70 @@ export async function fetchImages(
   options: FetchImagesOptions = {}
 ): Promise<FetchedImage[]> {
   const config = { ...DEFAULTS, ...options }
+  const queue = images.slice(0, config.maxImages)
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, queue.length || 1))
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
-  const results: FetchedImage[] = []
+  const results: FetchedImage[] = new Array(queue.length)
+  let nextIndex = 0
   let total = 0
+  let stopped = false
 
-  for (const image of images) {
-    if (results.length >= config.maxImages) break
+  const fetchOne = async (image: ImageRef): Promise<FetchedImage> => {
+    if (options.signal?.aborted) return { ...image, status: 'failed', reason: 'ABORTED' }
     if (total >= config.maxTotalBytes) {
-      results.push({ ...image, status: 'skipped', reason: 'TOTAL_BUDGET' })
-      continue
-    }
-
-    if (options.signal?.aborted) {
-      results.push({ ...image, status: 'failed', reason: 'ABORTED' })
-      continue
+      return { ...image, status: 'skipped', reason: 'TOTAL_BUDGET' }
     }
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), config.timeoutMs)
-    const signal = options.signal
-      ? (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
-        ? (AbortSignal as unknown as { any: (signals: AbortSignal[]) => AbortSignal }).any([
-            controller.signal,
-            options.signal
-          ])
-        : controller.signal
-      : controller.signal
+    const AnySignal = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+    const signal = options.signal && AnySignal ? AnySignal([controller.signal, options.signal]) : controller.signal
     try {
-      const response = await fetchImpl(image.sourceUrl, {
-        credentials: 'omit',
-        signal
-      })
+      const response = await fetchImpl(image.sourceUrl, { credentials: 'omit', signal })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const mimeType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
       if (!mimeType.startsWith('image/')) throw new Error(`Unsupported content type: ${mimeType || 'unknown'}`)
       const buffer = await readResponseLimited(response, config.maxImageBytes)
-      if (buffer.byteLength > config.maxImageBytes) {
-        results.push({ ...image, status: 'skipped', reason: 'IMAGE_TOO_LARGE', mimeType })
-        continue
-      }
       if (total + buffer.byteLength > config.maxTotalBytes) {
-        results.push({ ...image, status: 'skipped', reason: 'TOTAL_BUDGET', mimeType })
-        continue
+        return { ...image, status: 'skipped', reason: 'TOTAL_BUDGET', mimeType }
       }
       total += buffer.byteLength
-      results.push({
+      return {
         ...image,
         status: 'fetched',
         mimeType,
         bytes: buffer.byteLength,
         dataBase64: toBase64(buffer)
-      })
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'FETCH_FAILED'
       if (/Image (is|exceeded)/u.test(message)) {
-        results.push({ ...image, status: 'skipped', reason: 'IMAGE_TOO_LARGE' })
-      } else {
-        results.push({ ...image, status: 'failed', reason: message })
+        return { ...image, status: 'skipped', reason: 'IMAGE_TOO_LARGE' }
       }
+      return { ...image, status: 'failed', reason: message }
     } finally {
       clearTimeout(timer)
     }
   }
 
-  return results
+  const worker = async (): Promise<void> => {
+    while (!stopped) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= queue.length) return
+      const image = queue[index]
+      if (!image) return
+      if (options.signal?.aborted) {
+        stopped = true
+        results[index] = { ...image, status: 'failed', reason: 'ABORTED' }
+        return
+      }
+      results[index] = await fetchOne(image)
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()))
+  return results.map((entry, index) =>
+    entry ?? { ...queue[index]!, status: 'failed', reason: 'NOT_FETCHED' }
+  )
 }

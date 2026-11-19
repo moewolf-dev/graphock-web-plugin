@@ -9,6 +9,7 @@ import {
   type Settings
 } from '../shared/messages'
 import { t } from '../shared/strings'
+import { formatLog, type LogEntry } from '../shared/logger'
 
 const loading = ref(true)
 const busy = ref(false)
@@ -134,6 +135,30 @@ async function copyLink(): Promise<void> {
   notice.value = t('copied')
 }
 
+async function copyDiagnostics(): Promise<void> {
+  try {
+    const logs = (await chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' })) as {
+      entries: LogEntry[]
+      persisted: LogEntry[]
+      manifest: { version: string; permissions: string[] }
+      userAgent: string
+    }
+    const lines = [
+      `Graphock Web Clipper ${logs.manifest.version}`,
+      `UA: ${logs.userAgent}`,
+      `Permissions: ${logs.manifest.permissions.join(', ')}`,
+      '--- session ---',
+      ...logs.entries.map(formatLog),
+      '--- persisted warnings/errors ---',
+      ...logs.persisted.map(formatLog)
+    ]
+    await navigator.clipboard.writeText(lines.join('\n'))
+    notice.value = t('diagnosticsCopied')
+  } catch {
+    notice.value = t('diagnosticsFailed')
+  }
+}
+
 async function requestImageAccess(): Promise<void> {
   const granted = await chrome.permissions.request({ origins: ['<all_urls>'] })
   notice.value = granted
@@ -241,6 +266,9 @@ onMounted(async () => {
     <section v-else class="clip__error" role="alert">
       <p class="clip__eyebrow">{{ t('couldNotClip') }}</p>
       <p class="clip__error-text">{{ errorText }}</p>
+      <button class="clip__link" type="button" @click="copyDiagnostics">
+        {{ t('copyDiagnostics') }}
+      </button>
     </section>
 
     <fieldset class="clip__modes" :disabled="loading">
@@ -319,13 +347,8 @@ onMounted(async () => {
     </button>
 
     <div class="clip__actions">
-      <button
-        class="clip__button clip__button--primary"
-        type="button"
-        :disabled="!result?.ok || busy"
-        @click="openApp"
-      >
-        {{ t('openInGraphock') }}
+      <button class="clip__button clip__button--primary" type="button" :disabled="!result?.ok || busy" @click="saveFile">
+        {{ saveNeedsZip ? t('saveZip') : t('saveFile') }}
       </button>
       <div class="clip__row">
         <button
@@ -336,8 +359,8 @@ onMounted(async () => {
         >
           {{ copied ? t('copied') : t('copyImportLink') }}
         </button>
-        <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="saveFile">
-          {{ saveNeedsZip ? t('saveZip') : t('saveFile') }}
+        <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="openApp">
+          {{ t('openInGraphock') }}
         </button>
       </div>
     </div>

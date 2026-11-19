@@ -377,6 +377,16 @@ async function main() {
       fail('saved file content does not match what was requested')
     }
 
+    // Diagnostics: capture stages must be observable without opening devtools.
+    const logs = await popup.evaluate(() => chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' }))
+    const events = (logs?.entries ?? []).map((entry) => entry.event)
+    for (const required of ['capture-start', 'collect', 'build']) {
+      if (!events.includes(required)) {
+        console.error('e2e:smoke: missing log event', required, events)
+        fail(`diagnostics missing ${required}`)
+      }
+    }
+
     // Full-page HTML must respect all three image policies.
     await page.bringToFront()
     await popup.evaluate(async () => {

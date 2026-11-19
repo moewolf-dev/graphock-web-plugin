@@ -40,19 +40,26 @@ export async function collectStyles(doc: Document): Promise<string> {
   }
 
   const links = Array.from(doc.querySelectorAll('link[rel~="stylesheet"]')).slice(0, 8)
-  for (const link of links) {
-    const href = link.getAttribute('href')?.trim()
-    if (!href) continue
-    try {
-      const url = new URL(href, doc.baseURI).toString()
-      const response = await fetch(url, { credentials: 'omit' })
-      if (!response.ok) continue
-      const text = await response.text()
-      if (text.length <= 512 * 1024) parts.push(`/* ${url} */\n${absolutizeCssUrls(text, url)}`)
-    } catch {
-      // Cross-origin or offline: keep the inline styles we already have.
-    }
-  }
+  const sheets = await Promise.all(
+    links.map(async (link) => {
+      const href = link.getAttribute('href')?.trim()
+      if (!href) return ''
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 3_000)
+      try {
+        const url = new URL(href, doc.baseURI).toString()
+        const response = await fetch(url, { credentials: 'omit', signal: controller.signal })
+        if (!response.ok) return ''
+        const text = await response.text()
+        return text.length <= 512 * 1024 ? `/* ${url} */\n${absolutizeCssUrls(text, url)}` : ''
+      } catch {
+        return ''
+      } finally {
+        clearTimeout(timer)
+      }
+    })
+  )
+  parts.push(...sheets.filter(Boolean))
 
   return parts.join('\n').slice(0, MAX_STYLES_CHARS)
 }

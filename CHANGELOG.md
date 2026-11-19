@@ -28,6 +28,9 @@ All notable changes are documented here. This project follows [Semantic Versioni
   inlined fonts; duplicate image URLs keep every reference; atomic receiver writes; explicit
   zip-preview expiry; DOM/stream size guards before allocation; TXT export and validated
   settings import.
+- Runtime feedback fixes: longer staged capture budgets with parallel image/CSS fetching,
+  stage-aware timeout errors, structured logs in the popup/options/content script, and the
+  save/open button order swapped.
 - Protocol v1 spec (`docs/protocol/CUSTOM_PROTOCOL_IMPORT.md`) with inline/file/wake channels.
 - `@graphock/clip-model`: document model, zod schema, canonical JSON, checksums.
 - `@graphock/handoff`: URL builder/parser, DEFLATE + base64url encoding, limits, error codes.

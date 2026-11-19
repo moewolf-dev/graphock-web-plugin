@@ -57,6 +57,25 @@ describe('fetchImages', () => {
     expect(result).toHaveLength(100)
   })
 
+  it('fetches with bounded concurrency', async () => {
+    const fetchImpl = vi.fn(async () => {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 40))
+      return response(new Uint8Array([1]))
+    })
+    const images = Array.from({ length: 18 }, (_, index) => ({
+      assetId: `img-${index + 1}`,
+      sourceUrl: `https://example.com/${index}.png`,
+      alt: ''
+    }))
+    const started = Date.now()
+    const result = await fetchImages(images, { fetchImpl, concurrency: 6 })
+    const elapsed = Date.now() - started
+    expect(result).toHaveLength(18)
+    expect(result.every((item) => item.status === 'fetched')).toBe(true)
+    // Sequential would be ~720ms; six workers should finish in roughly 120-200ms.
+    expect(elapsed).toBeLessThan(500)
+  })
+
   it('reports network errors as failed', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('CORS')

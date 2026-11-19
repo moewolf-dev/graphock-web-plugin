@@ -373,6 +373,7 @@ export type InlineCssOptions = {
   maxTotalBytes?: number
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  assetTimeoutMs?: number
 }
 
 const CSS_URL_PATTERN = /url\(\s*(['"]?)([^'")]+)\1\s*\)/giu
@@ -427,26 +428,40 @@ export async function inlineCssAssets(
 
   const replacements = new Map<string, string>()
   let total = 0
-  for (const url of urls) {
-    if (options.signal?.aborted) {
-      throw new ProtocolError('E_CAPTURE_CANCELLED', 'Capture was cancelled')
-    }
-    try {
-      const response = await fetchImpl(url, {
-        credentials: 'omit',
-        ...(options.signal ? { signal: options.signal } : {})
-      })
-      if (!response.ok) continue
-      const header = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
-      const bytes = await readResponseLimited(response, maxAssetBytes)
-      if (bytes.byteLength > maxAssetBytes || total + bytes.byteLength > maxTotalBytes) continue
-      total += bytes.byteLength
-      const mime = header || (/\.(woff2?|ttf|otf)$/iu.test(url) ? 'font/woff2' : 'application/octet-stream')
-      replacements.set(url, `data:${mime};base64,${bytesToBase64(bytes)}`)
-    } catch {
-      // Leave the original URL: offline exports still degrade gracefully.
+  const queue = [...urls]
+  let nextIndex = 0
+  const worker = async (): Promise<void> => {
+    while (nextIndex < queue.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const url = queue[index]
+      if (!url) return
+      if (options.signal?.aborted) {
+        throw new ProtocolError('E_CAPTURE_CANCELLED', 'Capture was cancelled')
+      }
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), options.assetTimeoutMs ?? 5_000)
+      const AnySignal = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+      const signal =
+        options.signal && AnySignal ? AnySignal([controller.signal, options.signal]) : controller.signal
+      try {
+        const response = await fetchImpl(url, { credentials: 'omit', signal })
+        if (!response.ok) continue
+        const header = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
+        const bytes = await readResponseLimited(response, maxAssetBytes)
+        if (bytes.byteLength > maxAssetBytes || total + bytes.byteLength > maxTotalBytes) continue
+        total += bytes.byteLength
+        const mime =
+          header || (/\.(woff2?|ttf|otf)$/iu.test(url) ? 'font/woff2' : 'application/octet-stream')
+        replacements.set(url, `data:${mime};base64,${bytesToBase64(bytes)}`)
+      } catch {
+        // Leave the original URL: offline exports still degrade gracefully.
+      } finally {
+        clearTimeout(timer)
+      }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, () => worker()))
 
   if (replacements.size === 0) return html
   return html.replace(CSS_URL_PATTERN, (whole, quote: string, raw: string) => {

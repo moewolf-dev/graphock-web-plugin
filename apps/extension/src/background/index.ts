@@ -21,6 +21,7 @@ import {
   type Settings
 } from '../shared/messages'
 import { TimeoutError, withTimeout } from './timeout'
+import { createLogger, type LogEntry } from '../shared/logger'
 import {
   buildClip,
   buildClipZip,
@@ -39,7 +40,8 @@ const HISTORY_KEY = 'history'
 const MAX_HISTORY = 20
 const PREPARED_TTL_MS = 10 * 60 * 1000
 const MAX_PREPARED = 5
-const CAPTURE_DEADLINE_MS = 25_000
+const CAPTURE_DEADLINE_MS = 45_000
+const COLLECT_TIMEOUT_MS = 30_000
 
 type Prepared = {
   build: BuildResult
@@ -52,6 +54,29 @@ type Prepared = {
 
 const prepared = new Map<string, Prepared>()
 const activeCaptures = new Map<string, AbortController>()
+
+const log = createLogger('background')
+const logRing: LogEntry[] = []
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+
+function record(entry: LogEntry): void {
+  logRing.push(entry)
+  if (logRing.length > 300) logRing.shift()
+  if (entry.level === 'warn' || entry.level === 'error') {
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      const failures = logRing.filter((item) => item.level === 'warn' || item.level === 'error').slice(-100)
+      void chrome.storage.local.set({ debugLogs: failures })
+    }, 800)
+  }
+}
+
+function logInfo(event: string, data?: Record<string, unknown>, extra?: { requestId?: string; durationMs?: number }): void {
+  record(log.info(event, data, extra))
+}
+function logError(event: string, data?: Record<string, unknown>, extra?: { requestId?: string; durationMs?: number }): void {
+  record(log.error(event, data, extra))
+}
 
 function rememberPrepared(record: Prepared): void {
   prepared.set(record.build.document.clipId, record)
@@ -295,12 +320,16 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
   const requestId = request.requestId || crypto.randomUUID()
   const controller = new AbortController()
   activeCaptures.set(requestId, controller)
+  const started = performance.now()
+  let stage = 'init'
   const deadline = setTimeout(() => controller.abort('timeout'), CAPTURE_DEADLINE_MS)
+  logInfo('capture-start', { mode: request.mode, format: request.format }, { requestId })
 
   try {
     const settings = await getSettings()
     const signal = controller.signal
     throwIfAborted(signal)
+    stage = 'tab'
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (!tab?.id) {
@@ -319,6 +348,7 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
       }
     }
     throwIfAborted(signal)
+    stage = 'collect'
 
     let collected: CollectedPage
     try {
@@ -329,11 +359,18 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
             mode: request.mode,
             imagePolicy: settings.imagePolicy
           }) as Promise<CollectedPage>,
-          20_000,
+          COLLECT_TIMEOUT_MS,
           'The page took too long to capture.'
         ),
         signal
       )
+      logInfo('collect', {
+        blocks: collected.blocks.length,
+        images: collected.images.length,
+        nodes: collected.nodeCount,
+        readable: collected.readable,
+        timings: collected.timings
+      }, { requestId, durationMs: performance.now() - started })
     } catch (error) {
       if (error instanceof ProtocolError) throw error
       if (error instanceof TimeoutError) {
@@ -378,7 +415,29 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
     // Only the embed policy downloads image bytes. Link and text-only modes
     // never fetch images, so a policy change cannot leak network requests.
     if (settings.imagePolicy === 'embed' && collected.images.length > 0) {
-      collected.images = await fetchImages(collected.images, { signal })
+      stage = 'images'
+      const imageStart = performance.now()
+      // Images are best-effort: give the whole phase a budget and continue with
+      // whatever arrived instead of failing the clip on one slow host.
+      const imageBudget = new AbortController()
+      const imageTimer = setTimeout(() => imageBudget.abort('images-timeout'), 15_000)
+      const AnySignal = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+      const imageSignal = AnySignal ? AnySignal([signal, imageBudget.signal]) : signal
+      try {
+        collected.images = await fetchImages(collected.images, {
+          signal: imageSignal,
+          concurrency: 6,
+          timeoutMs: 6_000
+        })
+      } finally {
+        clearTimeout(imageTimer)
+      }
+      const fetched = collected.images.filter((item) => item.status === 'fetched').length
+      const failed = collected.images.filter((item) => item.status === 'failed').length
+      logInfo('images', { total: collected.images.length, fetched, failed }, {
+        requestId,
+        durationMs: performance.now() - imageStart
+      })
     }
     throwIfAborted(signal)
 
@@ -387,8 +446,16 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
       return prepareHtmlSnapshot(rawHtml, policy, collected.images, { signal })
     }
 
+    stage = 'snapshot'
     let policy = settings.imagePolicy
+    const snapshotStart = performance.now()
     let htmlSnapshot = await snapshotFor(policy)
+    if (htmlSnapshot) {
+      logInfo('snapshot', { bytes: htmlSnapshot.length, policy }, {
+        requestId,
+        durationMs: performance.now() - snapshotStart
+      })
+    }
     throwIfAborted(signal)
 
     const baseOptions = {
@@ -398,11 +465,19 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
       generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent }
     }
 
+    stage = 'build'
+    const buildStart = performance.now()
     let built = await buildClip(collected, {
       ...baseOptions,
       imagePolicy: policy,
       ...(htmlSnapshot ? { htmlSnapshot } : {})
     })
+    logInfo('build', {
+      format: built.format,
+      blocks: built.document.blocks.length,
+      assets: built.stats,
+      inline: Boolean(built.inlineUrl)
+    }, { requestId, durationMs: performance.now() - buildStart })
     throwIfAborted(signal)
 
     // Embedded images rarely fit in a 24k-character URL. When the target build
@@ -460,14 +535,18 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
         : {})
     }
   } catch (error) {
-    if (error instanceof ProtocolError) {
-      return { ok: false, code: error.code, message: error.message }
-    }
-    return {
-      ok: false,
-      code: 'E_INTERNAL',
-      message: error instanceof Error ? error.message : 'Unexpected capture error'
-    }
+    const code = error instanceof ProtocolError ? error.code : 'E_INTERNAL'
+    const message =
+      error instanceof ProtocolError && error.code === 'E_CAPTURE_TIMEOUT'
+        ? `Capture exceeded ${CAPTURE_DEADLINE_MS / 1000}s while ${stage === 'collect' ? 'reading the page' : stage === 'images' ? 'loading images' : stage === 'snapshot' ? 'building the HTML snapshot' : stage === 'build' ? 'building the clip' : 'starting'}. Try “Readable” or “Selection”.`
+        : error instanceof Error
+          ? error.message
+          : 'Unexpected capture error'
+    logError('capture-failed', { stage, code, message }, {
+      requestId,
+      durationMs: performance.now() - started
+    })
+    return { ok: false, code, message }
   } finally {
     clearTimeout(deadline)
     activeCaptures.delete(requestId)
@@ -475,6 +554,8 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
 }
 
 async function deliver(request: DeliverRequest): Promise<DeliverResult> {
+  const started = performance.now()
+  logInfo('deliver-start', { clipId: request.clipId })
   let record: Prepared
   try {
     record = requirePrepared(request.clipId)
@@ -492,6 +573,7 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
     if (record.inlineUrl) {
       await rememberHistory(build, 'inline')
       record.delivered = { ok: true, url: record.inlineUrl, channel: 'inline' }
+      logInfo('deliver-ok', { channel: 'inline' }, { durationMs: performance.now() - started })
       return record.delivered
     }
 
@@ -511,6 +593,9 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
         savedFilename: saved.filename,
         savedPath: saved.path
       }
+      logInfo('deliver-ok', { channel: 'file', filename: saved.filename }, {
+        durationMs: performance.now() - started
+      })
       return record.delivered
     }
 
@@ -523,8 +608,13 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
       fallbackReason:
         'Graphock opened. Choose “Import file” in the app to bring this page in.'
     }
+    logInfo('deliver-ok', { channel: 'wake' }, { durationMs: performance.now() - started })
     return record.delivered
   } catch (error) {
+    logError('deliver-failed', {
+      code: error instanceof ProtocolError ? error.code : 'E_DELIVERY_FAILED',
+      message: error instanceof Error ? error.message : 'unknown'
+    }, { durationMs: performance.now() - started })
     return {
       ok: false,
       code: error instanceof ProtocolError ? error.code : 'E_DELIVERY_FAILED',
@@ -577,6 +667,7 @@ async function downloadBytes(
 
 async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: string }> {
   const settings = await getSettings()
+  const started = performance.now()
   const subdirectory = downloadSubdirectory(settings)
   const build = prepared.get(request.clipId)
 
@@ -604,6 +695,7 @@ async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: 
       'application/zip'
     )
     await waitForDownload(id)
+    logInfo('save-zip', { filename }, { durationMs: performance.now() - started })
     return { ok: true, filename }
   }
 
@@ -627,6 +719,7 @@ async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: 
     meta.mime
   )
   if (id >= 0) await waitForDownload(id)
+  logInfo('save-file', { filename, format: request.format }, { durationMs: performance.now() - started })
   return { ok: true, filename }
 }
 
@@ -700,6 +793,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (type === 'GRAPHOCK_CAPABILITIES') {
     void getSettings().then((settings) => sendResponse(capabilities(settings)))
+    return true
+  }
+  if (type === 'GRAPHOCK_LOGS') {
+    void chrome.storage.local.get('debugLogs').then((stored) => {
+      sendResponse({
+        entries: logRing.slice(-200),
+        persisted: Array.isArray(stored.debugLogs) ? stored.debugLogs : [],
+        manifest: {
+          version: chrome.runtime.getManifest().version,
+          permissions: chrome.runtime.getManifest().permissions ?? []
+        },
+        userAgent: navigator.userAgent
+      })
+    })
+    return true
+  }
+  if (type === 'GRAPHOCK_CLEAR_LOGS') {
+    logRing.length = 0
+    void chrome.storage.local.remove('debugLogs')
+    sendResponse({ ok: true })
     return true
   }
   if (type === 'GRAPHOCK_SAVE') {

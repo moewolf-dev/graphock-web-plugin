@@ -10,6 +10,7 @@ import {
 } from '../shared/messages'
 import { t } from '../shared/strings'
 import { parseSettingsBackup, serializeSettings } from '../shared/settings'
+import { formatLog, type LogEntry } from '../shared/logger'
 
 const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
 const history = ref<HistoryEntry[]>([])
@@ -45,6 +46,8 @@ const policies: { value: ImagePolicy; label: string }[] = [
 ]
 
 const storageSummary = ref('')
+const logsText = ref('')
+let logsRaw: LogEntry[] = []
 
 const historyCount = computed(() => history.value.length)
 
@@ -53,6 +56,35 @@ async function load(): Promise<void> {
   settings.value = { ...DEFAULT_SETTINGS, ...((stored['settings'] as Partial<Settings>) ?? {}) }
   history.value = Array.isArray(stored['history']) ? (stored['history'] as HistoryEntry[]) : []
   await loadDiagnostics()
+  await loadLogs()
+}
+
+async function loadLogs(): Promise<void> {
+  const result = (await chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' })) as {
+    entries: LogEntry[]
+    persisted: LogEntry[]
+  }
+  logsRaw = [...result.entries, ...result.persisted]
+  logsText.value = logsRaw.length === 0 ? 'No logs yet.' : logsRaw.slice(-80).map(formatLog).join('\n')
+}
+
+async function copyLogs(): Promise<void> {
+  await navigator.clipboard.writeText(logsText.value)
+}
+
+function downloadLogs(): void {
+  const blob = new Blob([logsText.value], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `graphock-web-plugin-logs-${new Date().toISOString().slice(0, 10)}.txt`
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
+
+async function clearLogs(): Promise<void> {
+  await chrome.runtime.sendMessage({ type: 'GRAPHOCK_CLEAR_LOGS' })
+  await loadLogs()
 }
 
 async function loadDiagnostics(): Promise<void> {
@@ -231,6 +263,13 @@ onMounted(load)
         <button class="danger" type="button" @click="clearAll">{{ t('clearAll') }}</button>
       </div>
       <p class="hint">{{ storageSummary }} in this browser profile.</p>
+      <h3 class="subhead">{{ t('logs') }}</h3>
+      <pre class="diagnostics diagnostics--logs">{{ logsText }}</pre>
+      <div class="actions">
+        <button type="button" @click="copyLogs">{{ t('copyLogs') }}</button>
+        <button type="button" @click="downloadLogs">{{ t('downloadLogs') }}</button>
+        <button type="button" class="danger" @click="clearLogs">{{ t('clearLogs') }}</button>
+      </div>
     </section>
 
     <section class="card">
@@ -380,6 +419,9 @@ button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--dan
 }
 .history__title:hover { color: var(--accent); border: 0; }
 .history__meta { font-size: 11px; color: var(--dim); }
+
+.subhead { margin: 4px 0 0; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.diagnostics--logs { max-height: 320px; overflow: auto; }
 
 .diagnostics {
   margin: 0;

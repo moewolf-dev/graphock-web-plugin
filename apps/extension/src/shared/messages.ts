@@ -36,6 +36,14 @@ export type CollectedPage = {
   html?: string
   /** True when the page exceeded the DOM size guard before cloning. */
   tooLarge?: boolean
+  timings?: {
+    measureMs: number
+    readableMs: number
+    cloneMs: number
+    blocksMs: number
+    stylesMs: number
+    totalMs: number
+  }
   readable: boolean
   text: string
   selectionText: string
@@ -64,6 +72,13 @@ export type DeliverResult =
       fallbackReason?: string
     }
   | { ok: false; code: string; message: string }
+
+export type LogsResult = {
+  entries: import('./logger').LogEntry[]
+  persisted: import('./logger').LogEntry[]
+  manifest: { version: string; permissions: string[] }
+  userAgent: string
+}
 
 export type Capabilities = {
   downloads: boolean

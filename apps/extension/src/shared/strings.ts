@@ -74,6 +74,13 @@ const en = {
   expiredPreview: 'This preview expired. Capture the page again.',
   savedAs: 'Saved as {name}.',
   saveFailed: 'Save failed: {message}',
+  copyDiagnostics: 'Copy diagnostics',
+  diagnosticsCopied: 'Diagnostics copied to the clipboard.',
+  diagnosticsFailed: 'Could not read diagnostics.',
+  logs: 'Logs',
+  copyLogs: 'Copy logs',
+  downloadLogs: 'Download logs',
+  clearLogs: 'Clear logs',
   zipUnavailable:
     'This browser cannot save a zip. Use “Open in Graphock” to keep embedded images.'
 } as const
@@ -149,6 +156,13 @@ const zh: Record<StringKey, string> = {
   expiredPreview: '预览已过期，请重新抓取页面。',
   savedAs: '已保存为 {name}。',
   saveFailed: '保存失败：{message}',
+  copyDiagnostics: '复制诊断信息',
+  diagnosticsCopied: '诊断信息已复制到剪贴板。',
+  diagnosticsFailed: '无法读取诊断信息。',
+  logs: '日志',
+  copyLogs: '复制日志',
+  downloadLogs: '下载日志',
+  clearLogs: '清空日志',
   zipUnavailable: '此浏览器无法保存压缩包。请使用“在 Graphock 中打开”以保留嵌入图片。'
 }
 

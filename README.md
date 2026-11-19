@@ -107,6 +107,12 @@ pnpm protocol:receive --out ./tmp/clips --url 'graphock-direct://import#p=v1....
 (Obsidian Web Clipper, MarkDownload, Defuddle) and notes-only records for AGPL projects
 (SingleFile, Omnivore). Nothing there is bundled. See each `NOTES.md` for what we borrow.
 
+## Troubleshooting
+
+If a page fails to capture, open the popup and click **Copy diagnostics**, or open
+`chrome://extensions` → Graphock → **service worker** for live logs. See
+[`docs/qa/logs.md`](docs/qa/logs.md) for stages, budgets and what to report.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Commits must be signed off (DCO). Security issues:
