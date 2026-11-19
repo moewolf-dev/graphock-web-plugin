@@ -10,7 +10,3 @@ updates:
         dependency-type: development
       runtime-dependencies:
         dependency-type: production
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: monthly
