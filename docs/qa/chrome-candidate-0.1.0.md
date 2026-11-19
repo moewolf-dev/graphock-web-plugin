@@ -6,9 +6,12 @@ Status: **pre-candidate** (no tag created). Use this sheet before creating `v0.1
 
 | Item | Value |
 | --- | --- |
-| Source | `main` (plugin) + App PR #3 branch |
+| Plugin code commit | `98004d6` (later commits are docs/CI only; `baf45f2` made the ZIP TZ-independent) |
+| Plugin docs/HEAD at recording | `9a3219a` |
+| App receiver commit | `fd9e3830` on `feat/web-clip-protocol-import` (PR #3, **not merged**) |
 | Chrome ZIP | `artifacts/graphock-web-plugin-0.1.0-chrome.zip` |
 | SHA-256 | `d231add6…` (reproducible; packager re-execs with `TZ=UTC`) |
+| Remote evidence | release run `44468767283` (source `d676f3d`) matched the local repack |
 | Build | `pnpm build && pnpm package:chrome` |
 
 The same SHA is produced by the free Linux release workflow (`release-chrome`, manual dispatch).
@@ -26,6 +29,10 @@ The same SHA is produced by the free Linux release workflow (`release-chrome`, m
 7. Settings: import/export, logs copy/download/clear, 320px Chinese layout, `lang=zh-CN`.
 
 ## App protocol (requires App PR #3)
+
+App-side unit coverage is in place (37 protocol tests, including all 11 plugin
+vectors and an end-to-end inline import); the steps below are the remaining
+system-level checks that need a packaged build and real clicks.
 
 1. Run the App build with the PR (dev or packaged).
 2. Click **Open in Graphock** from the popup.
