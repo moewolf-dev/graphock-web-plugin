@@ -6,6 +6,22 @@
 
 > 目标：App 侧开发者只读规格与清单即可实现，不需要阅读插件源码。
 
+## 当前实现状态（2026-11-19）
+
+App 侧实现位于 `graphock-console-app` 分支 `feat/web-clip-protocol-import`（PR #3）。
+
+- 协议路由、内联/文件通道、schema/限额/checksum、用户确认、原子写入、工作区挂载、
+  `files:imported` 显形、重复与失败清理已落地。
+- `createdAt`/`generator`/`source.url`/资产 `mimeType` 已改为必填并校验；
+  内联解压与资产 base64 在分配前限界；最终路径写入前做目录归属校验。
+- MAS：文件路径通道显式拒绝；仅唤起改为正常路由（激活窗口 + 用户选择文件）。
+- 数据库登记失败会回滚工作区挂载与文件记录。
+- 资产只改写真实引用（Markdown 链接/HTML 属性/结构化标量），不再全局替换正文。
+- 插件测试向量已复制到 App `tests/fixtures/protocol/plugin-vectors.json`，
+  用 `pnpm sync:protocol-vectors` 同步，并在 `tests/protocol/pluginVectors.test.ts` 逐条断言。
+- 仍待：**真实打包 App + Chrome ZIP 的系统级联调**（系统协议弹框、`activeTab`、
+  MAS 实机）、App PR 评审合并。
+
 ## 0. 范围确认
 
 - [ ] 只处理 `<scheme>://import`，**不触碰**登录回调路径。
@@ -61,7 +77,8 @@ if (parsed.hostname.toLowerCase() === 'import') {
 
 ## 5. 测试
 
-- [ ] 复制 `cases.json` 到 App 测试资源，逐条断言
+- [x] 复制 `cases.json` 到 App 测试资源，逐条断言
+      （`tests/fixtures/protocol/plugin-vectors.json`，用 `pnpm sync:protocol-vectors` 同步）
 - [ ] 额外安全用例：篡改 base64、篡改 checksum、超长 URL、路径穿越、符号链接、重复 clip
 - [ ] 端到端：插件复制链接 → App 导入 → 文件可见 → 解析成功
 - [ ] 冷/热启动各一次（macOS 与 Windows）
