@@ -49,6 +49,9 @@ the workflows only produce artifacts.
 
 ## Verified runs
 
+Fork probe (PR #5, closed): `functional` executed and passed, `visual` was skipped, `sign-off`
+passed after ignoring platform merge commits (`a49c34f`).
+
 - Chrome release (manual, run `44468767283`): free Linux, artifact SHA-256 `d231add6…`.
 - `e2e` runs `functional` and `visual` both succeeded on `44468527493`.
 
