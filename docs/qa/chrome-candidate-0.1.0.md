@@ -8,7 +8,7 @@ Status: **pre-candidate** (no tag created). Use this sheet before creating `v0.1
 | --- | --- |
 | Plugin code commit | `98004d6` (later commits are docs/CI only; `baf45f2` made the ZIP TZ-independent) |
 | Plugin docs/HEAD at recording | `9a3219a` |
-| App receiver commit | `fd9e3830` on `feat/web-clip-protocol-import` (PR #3, **not merged**) |
+| App receiver commit | `c957c872` on `feat/web-clip-protocol-import` (PR #3 draft, **not merged**) |
 | Chrome ZIP | `artifacts/graphock-web-plugin-0.1.0-chrome.zip` |
 | SHA-256 | `d231add6…` (reproducible; packager re-execs with `TZ=UTC`) |
 | Remote evidence | release run `44468767283` (source `d676f3d`) matched the local repack |
