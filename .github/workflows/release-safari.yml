@@ -1,0 +1,52 @@
+name: release-safari
+
+# Native Safari archiving requires Xcode and must run on a dedicated Mac.
+# It is intentionally NOT part of tag releases: set CI_SAFARI_RUNNER_JSON to
+# the labels of a runner that has Xcode, then trigger this workflow manually.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-safari
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'avrea-ubuntu-latest' }}
+    steps:
+      - name: Require an Xcode-capable runner
+        run: |
+          set -euo pipefail
+          if [ -z "${{ vars.CI_SAFARI_RUNNER_JSON }}" ]; then
+            echo "::error::Set CI_SAFARI_RUNNER_JSON to a macOS runner with Xcode, e.g. [\"self-hosted\",\"macOS\",\"ARM64\",\"xcode\"]"
+            exit 1
+          fi
+          if ! command -v xcrun >/dev/null 2>&1 && [ "${{ runner.os }}" != "macOS" ]; then
+            echo "::error::This workflow must run on macOS"
+            exit 1
+          fi
+
+  safari:
+    needs: guard
+    runs-on: ${{ fromJSON(vars.CI_SAFARI_RUNNER_JSON) }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm safari:project
+      - run: pnpm package:safari
+      - uses: actions/upload-artifact@v4
+        with:
+          name: safari-release-unsigned
+          path: artifacts/safari/
+          if-no-files-found: error

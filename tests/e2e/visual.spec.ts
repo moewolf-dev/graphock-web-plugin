@@ -10,7 +10,7 @@ async function preparePopup(popup: Page, context: BrowserContext, server: TestSe
   await waitForSuccess(popup)
 }
 
-test.describe('visual baseline', () => {
+test.describe('@visual visual baseline', () => {
   test('popup (English, light)', async ({ context, popup, server }) => {
     await popup.setViewportSize({ width: 380, height: 640 })
     await preparePopup(popup, context, server)

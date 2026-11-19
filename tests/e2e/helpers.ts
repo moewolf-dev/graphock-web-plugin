@@ -92,6 +92,22 @@ export async function readDownloadedText(item: DownloadItem): Promise<string> {
   return readFile(item.filename, 'utf8')
 }
 
+export type ExtensionLog = {
+  ts: string
+  level: string
+  event: string
+  requestId?: string
+  durationMs?: number
+  data?: Record<string, unknown>
+}
+
+export async function extensionLogs(popup: Page): Promise<ExtensionLog[]> {
+  const result = (await popup.evaluate(() =>
+    chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' })
+  )) as { entries?: ExtensionLog[]; persisted?: ExtensionLog[] }
+  return [...(result.entries ?? []), ...(result.persisted ?? [])]
+}
+
 export async function historyLength(popup: Page): Promise<number> {
   return popup.evaluate(async () => {
     const stored = await chrome.storage.local.get('history')

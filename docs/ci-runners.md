@@ -16,6 +16,7 @@ Set repository variables (Settings → Variables) without editing workflows:
 | --- | --- | --- |
 | `CI_LINUX_RUNNER` | `sengi-basic-2-ubuntu-2404` | Forces one Linux label for every Linux job |
 | `CI_MACOS_RUNNER_JSON` | `["self-hosted","macOS","ARM64","moe-ci-macos"]` | JSON array of labels for macOS jobs |
+| `CI_SAFARI_RUNNER_JSON` | `["self-hosted","macOS","ARM64","xcode"]` | Required to run `release-safari.yml`; must have Xcode |
 
 If a provider is unavailable, set `CI_LINUX_RUNNER` to the other one (`avrea-ubuntu-latest`).
 
@@ -36,8 +37,10 @@ us). Do not remove the fork guard: self-hosted runners must never execute untrus
 | --- | --- | --- |
 | `verify.yml` | free Linux | lint, typecheck, coverage, audit, licences, build, Chrome zip |
 | `dco.yml` | free Linux | sign-off check on PRs |
-| `e2e.yml` | free macOS | Playwright extension suite (PR/main) |
-| `release.yml` | free Linux + free macOS | Chrome zip and unsigned Safari archive on tags |
+| `e2e.yml` | free Linux + free macOS | Linux functional suite (required, forks included) + macOS visual suite (trusted branches) |
+| `release.yml` | free Linux | Chrome zip on tags/manual (no Safari) |
+| `release-safari.yml` | dedicated macOS with Xcode | manual unsigned Safari archive; requires `CI_SAFARI_RUNNER_JSON` |
+| `nightly.yml` | free Linux | daily `@nightly` stability/large-page cases |
 
 ## What stays manual
 

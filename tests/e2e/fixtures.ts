@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
-import { readdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -71,16 +71,36 @@ async function attachFailureArtifacts(
   }
 
   try {
-    const worker = context.serviceWorkers()[0]
-    if (worker) {
-      const logs = await worker.evaluate(() => chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' }))
+    const extensionPage = context.pages().find((page) => page.url().startsWith('chrome-extension://'))
+    const request = extensionPage
+      ? extensionPage.evaluate(() => chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' }))
+      : context.serviceWorkers()[0]?.evaluate(() =>
+          chrome.runtime.sendMessage({ type: 'GRAPHOCK_LOGS' })
+        )
+    if (request) {
+      const logs = await Promise.race([
+        request,
+        new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error('log collection timed out')), 5_000)
+        )
+      ])
+      const logsPath = testInfo.outputPath('extension-logs.json')
+      await writeFile(logsPath, JSON.stringify(logs, null, 2))
       await testInfo.attach('extension-logs', {
-        body: JSON.stringify(logs, null, 2),
+        path: logsPath,
         contentType: 'application/json'
       })
     }
-  } catch {
-    // Logging is best-effort.
+  } catch (error) {
+    const errorPath = testInfo.outputPath('extension-logs-error.txt')
+    await writeFile(
+      errorPath,
+      error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)
+    )
+    await testInfo.attach('extension-logs-error', {
+      path: errorPath,
+      contentType: 'text/plain'
+    })
   }
 }
 
@@ -93,7 +113,10 @@ export const test = base.extend<Fixtures>({
       throw new Error(`Extension build missing at ${extensionPath}. Run pnpm qa (which builds it).`)
     }
 
-    const context = await chromium.launchPersistentContext(testInfo.outputPath('profile'), {
+    // Keep the Chromium profile out of test-results/, otherwise CI uploads
+    // ~9 MB of browser state with every failure.
+    const profileDir = await mkdtemp(join(tmpdir(), 'graphock-e2e-profile-'))
+    const context = await chromium.launchPersistentContext(profileDir, {
       executablePath: chrome,
       headless: process.env.HEADFUL !== '1',
       locale,
@@ -125,6 +148,7 @@ export const test = base.extend<Fixtures>({
       }
     }
     await context.close()
+    await rm(profileDir, { recursive: true, force: true })
   },
 
   extensionId: async ({ context }, use) => {

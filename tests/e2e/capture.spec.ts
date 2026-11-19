@@ -8,6 +8,7 @@ import {
   capture,
   clickAndWait,
   downloads,
+  extensionLogs,
   historyLength,
   openContent,
   readDownloadedText,
@@ -75,6 +76,29 @@ test('cancel aborts a slow capture with no download or history', async ({
   await expect(popup.locator('.clip__skeleton')).toBeVisible()
   await popup.getByTestId('cancel').click()
   await expect(popup.getByTestId('meta')).toHaveCount(0)
+
+  // The background must report an aborted capture for the request we cancelled
+  // and must never emit a build event for it.
+  let cancelledRequest = ''
+  await expect
+    .poll(async () => {
+      const logs = await extensionLogs(popup)
+      const starts = logs.filter((entry) => entry.event === 'capture-start')
+      const requestId = starts.at(-1)?.requestId ?? ''
+      const failure = logs.find(
+        (entry) =>
+          entry.event === 'capture-failed' &&
+          entry.requestId === requestId &&
+          entry.data?.code === 'E_CAPTURE_CANCELLED'
+      )
+      if (failure) cancelledRequest = requestId
+      return Boolean(failure)
+    }, { timeout: 10_000, intervals: [200, 500] })
+    .toBe(true)
+  const logs = await extensionLogs(popup)
+  expect(
+    logs.some((entry) => entry.event === 'build' && entry.requestId === cancelledRequest)
+  ).toBe(false)
 
   await new Promise((resolveWait) => setTimeout(resolveWait, 2_500))
   expect((await downloads(popup)).length).toBe(baselineDownloads.length)
@@ -188,9 +212,14 @@ test('large clips prepare a file package and the reference receiver imports it',
   const packageJson = JSON.parse(await readDownloadedText(item))
   expect(packageJson.schema).toBe('graphock.clip.handoff/1')
 
+  await expect
+    .poll(() => popup.locator('.clip').getAttribute('data-delivered-url'), { timeout: 10_000 })
+    .toContain('graphock-direct://import?file=')
+  const url = await popup.locator('.clip').getAttribute('data-delivered-url')
+  if (!url) throw new Error('product did not expose the delivered protocol URL')
+
   const outputDir = testInfo.outputPath('receiver')
   await mkdir(outputDir, { recursive: true })
-  const url = `graphock-direct://import?file=${encodeURIComponent(item.filename)}`
   const output = execFileSync(
     'pnpm',
     [

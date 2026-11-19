@@ -28,7 +28,9 @@
     "qa": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test",
     "qa:ui": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --ui",
     "qa:update": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --update-snapshots",
-    "qa:nightly": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @nightly"
+    "qa:nightly": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @nightly",
+    "qa:linux": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep-invert @visual",
+    "qa:visual": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @visual"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

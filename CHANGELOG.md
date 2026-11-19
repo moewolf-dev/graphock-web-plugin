@@ -36,6 +36,9 @@ All notable changes are documented here. This project follows [Semantic Versioni
   settings import, and 320px Chinese layout.
 - CI moves to organization-bound free runners (Sengi/Avrea Linux, self-hosted macOS) with
   repository-variable overrides and a fork guard.
+- Release hardening: Chrome-only tag workflow, manual Safari archive with an Xcode runner
+  guard, Safari build validation in CI, Linux functional e2e as the required gate, filtered
+  failure artifacts with extension logs, stronger cancel/URL assertions, scheduled nightly.
 - Protocol v1 spec (`docs/protocol/CUSTOM_PROTOCOL_IMPORT.md`) with inline/file/wake channels.
 - `@graphock/clip-model`: document model, zod schema, canonical JSON, checksums.
 - `@graphock/handoff`: URL builder/parser, DEFLATE + base64url encoding, limits, error codes.

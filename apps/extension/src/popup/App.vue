@@ -22,6 +22,7 @@ const copied = ref(false)
 let requestSeq = 0
 let currentRequestId = ''
 const appliedSeq = ref(0)
+const deliveredUrl = ref('')
 
 const modes: { value: CaptureMode; label: string; hint: string }[] = [
   { value: 'readable', label: t('readable'), hint: t('modeHintReadable') },
@@ -82,6 +83,7 @@ async function capture(): Promise<void> {
   currentRequestId = crypto.randomUUID()
   loading.value = true
   result.value = null
+  deliveredUrl.value = ''
   notice.value = ''
   copied.value = false
   try {
@@ -135,8 +137,9 @@ function setPolicy(next: ImagePolicy): void {
 
 async function copyLink(): Promise<void> {
   const value = result.value
-  if (loading.value || !value?.ok || !value.url) return
-  await navigator.clipboard.writeText(value.url)
+  const url = value?.url || deliveredUrl.value
+  if (loading.value || !url) return
+  await navigator.clipboard.writeText(url)
   copied.value = true
   notice.value = t('copied')
 }
@@ -189,6 +192,7 @@ async function openApp(): Promise<void> {
     }
     // Keep the navigation in the popup: the click gesture is required for the
     // browser to hand the custom scheme to the OS.
+    deliveredUrl.value = delivered.url
     await chrome.tabs.create({ url: delivered.url })
     notice.value =
       delivered.channel === 'wake'
@@ -244,7 +248,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="clip" :data-loading="loading" :data-applied-seq="appliedSeq">
+  <main
+    class="clip"
+    :data-loading="loading"
+    :data-applied-seq="appliedSeq"
+    :data-delivered-url="deliveredUrl"
+  >
     <header class="clip__header">
       <div class="clip__brand">
         <span class="clip__dot" aria-hidden="true"></span>
@@ -380,7 +389,7 @@ onMounted(async () => {
         <button
           class="clip__button"
           type="button"
-          :disabled="loading || !result?.ok || !result.url"
+          :disabled="loading || !result?.ok || (!result.url && !deliveredUrl)"
           data-testid="copy-link"
           @click="copyLink"
         >

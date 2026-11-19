@@ -1,4 +1,4 @@
-name: release
+name: release-chrome
 
 on:
   push:
@@ -8,10 +8,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-chrome-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   chrome:
-    # Free organization Linux runners (Sengi / Avrea).
+    # Chrome-only candidate packaging. Safari native archiving is a separate
+    # manual workflow that requires a Mac with Xcode.
     runs-on: ${{ vars.CI_LINUX_RUNNER || ((endsWith(github.run_number, '1') || endsWith(github.run_number, '4') || endsWith(github.run_number, '7')) && 'sengi-basic-2-ubuntu-2404') || 'avrea-ubuntu-latest' }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -39,26 +45,3 @@ jobs:
           name: coverage-release
           path: coverage/
           if-no-files-found: warn
-
-  safari:
-    # Free organization macOS runner; needs Xcode for the Safari archive.
-    runs-on: ${{ fromJSON(vars.CI_MACOS_RUNNER_JSON || '["self-hosted","macOS","ARM64"]') }}
-    timeout-minutes: 40
-    if: ${{ github.event_name != 'pull_request' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.18.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm safari:project
-      - run: pnpm package:safari
-      - uses: actions/upload-artifact@v4
-        with:
-          name: safari-release-unsigned
-          path: artifacts/safari/
-          if-no-files-found: error
