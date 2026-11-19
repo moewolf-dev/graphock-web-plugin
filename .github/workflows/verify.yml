@@ -32,12 +32,12 @@ jobs:
       - run: pnpm lint:licenses
       - run: pnpm build
       - run: pnpm package:chrome
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chrome-extension
           path: artifacts/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/

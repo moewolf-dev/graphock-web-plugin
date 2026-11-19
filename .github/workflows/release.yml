@@ -28,12 +28,12 @@ jobs:
       - run: pnpm lint:licenses
       - run: pnpm build
       - run: pnpm package:chrome
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chrome-release
           path: artifacts/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-release
           path: coverage/
@@ -53,7 +53,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm safari:project
       - run: pnpm package:safari
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: safari-release-unsigned
           path: artifacts/safari/
