@@ -24,16 +24,17 @@ jobs:
             echo "::error::Set CI_SAFARI_RUNNER_JSON to a macOS runner with Xcode, e.g. [\"self-hosted\",\"macOS\",\"ARM64\",\"xcode\"]"
             exit 1
           fi
-          if ! command -v xcrun >/dev/null 2>&1 && [ "${{ runner.os }}" != "macOS" ]; then
-            echo "::error::This workflow must run on macOS"
-            exit 1
-          fi
 
   safari:
     needs: guard
     runs-on: ${{ fromJSON(vars.CI_SAFARI_RUNNER_JSON) }}
     timeout-minutes: 45
     steps:
+      - name: Verify macOS
+        run: |
+          set -euo pipefail
+          [ "$(uname -s)" = "Darwin" ] || { echo "::error::CI_SAFARI_RUNNER_JSON must point to macOS"; exit 1; }
+          xcrun --find xcodebuild
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
