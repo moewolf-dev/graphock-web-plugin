@@ -109,6 +109,10 @@ pnpm protocol:receive --out ./tmp/clips --url 'graphock-direct://import#p=v1....
 (Obsidian Web Clipper, MarkDownload, Defuddle) and notes-only records for AGPL projects
 (SingleFile, Omnivore). Nothing there is bundled. See each `NOTES.md` for what we borrow.
 
+## Chrome candidate
+
+Before tagging `v0.1.0`, follow [docs/qa/chrome-candidate-0.1.0.md](docs/qa/chrome-candidate-0.1.0.md).
+
 ## CI
 
 CI uses the organization-bound free Linux runners (Sengi/Avrea) and the free macOS runner
