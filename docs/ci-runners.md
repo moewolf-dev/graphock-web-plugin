@@ -43,3 +43,8 @@ us). Do not remove the fork guard: self-hosted runners must never execute untrus
 
 Signing, notarization, TestFlight and store upload still require credentials and human review;
 the workflows only produce artifacts.
+
+## Verified runs
+
+- `verify` (2026-11-19, run `44465760931`): runner `avrea-exe-…`, group `avrea`.
+- `e2e` (2026-11-19, run `44465761069`): runner `Yuuki` (`self-hosted` macOS).
