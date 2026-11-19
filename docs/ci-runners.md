@@ -49,5 +49,8 @@ the workflows only produce artifacts.
 
 ## Verified runs
 
+- Chrome release (manual, run `44468767283`): free Linux, artifact SHA-256 `d231add6…`.
+- `e2e` runs `functional` and `visual` both succeeded on `44468527493`.
+
 - `verify` (2026-11-19, run `44465760931`): runner `avrea-exe-…`, group `avrea`.
 - `e2e` (2026-11-19, run `44465761069`): runner `Yuuki` (`self-hosted` macOS).

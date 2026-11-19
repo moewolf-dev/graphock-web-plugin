@@ -12,6 +12,17 @@ import { readFile, mkdir, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { zipSync } from 'fflate'
+import { spawnSync } from 'node:child_process'
+
+// ZIP stores local DOS time. Re-exec with TZ=UTC so the archive is
+// byte-identical on developer machines and CI runners in other timezones.
+if (process.env.TZ !== 'UTC') {
+  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: { ...process.env, TZ: 'UTC' }
+  })
+  process.exit(result.status ?? 1)
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const distDir = resolve(root, 'apps/extension/dist/chrome')
