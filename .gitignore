@@ -25,3 +25,8 @@ artifacts/
 # The developer's global gitignore ignores public/; this project needs it.
 !apps/extension/public/
 !apps/extension/public/**
+
+# Playwright artifacts
+playwright-report/
+test-results/
+blob-report/
