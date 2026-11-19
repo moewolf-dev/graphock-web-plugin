@@ -39,7 +39,7 @@ local saves, CSS background images and webfont inlining, Safari packaging, store
 
 ```bash
 pnpm install
-pnpm verify            # lint + typecheck + 96 unit tests + build
+pnpm verify            # lint + typecheck + 119 unit tests + build
 pnpm test:e2e          # real Chrome: load extension, capture a page, build a handoff URL
 pnpm build             # → apps/extension/dist/chrome
 pnpm package:chrome    # → artifacts/graphock-web-plugin-0.1.0-chrome.zip

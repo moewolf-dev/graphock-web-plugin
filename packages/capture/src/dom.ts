@@ -72,6 +72,37 @@ export function cloneForExport(root: Element, options: CloneOptions = {}): Eleme
   return (visit(root) as Element | null) ?? doc.createElement(root.tagName)
 }
 
+export type DomSize = { nodes: number; depth: number; tooLarge: boolean }
+
+/**
+ * Measure a subtree before cloning it. This keeps a hostile or gigantic page
+ * from allocating a full clone only to discover it is too large.
+ */
+export function measureDom(
+  root: Node,
+  limits: { maxNodes?: number; maxDepth?: number } = {}
+): DomSize {
+  const maxNodes = limits.maxNodes ?? 100_000
+  const maxDepth = limits.maxDepth ?? 600
+  let nodes = 0
+  let depth = 0
+
+  type Entry = { node: Node; depth: number }
+  const stack: Entry[] = [{ node: root, depth: 1 }]
+  while (stack.length > 0) {
+    const entry = stack.pop() as Entry
+    nodes += 1
+    if (entry.depth > depth) depth = entry.depth
+    if (nodes > maxNodes || depth > maxDepth) return { nodes, depth, tooLarge: true }
+    for (const child of Array.from(entry.node.childNodes)) {
+      if (child.nodeType === 1 || child.nodeType === 3) {
+        stack.push({ node: child, depth: entry.depth + 1 })
+      }
+    }
+  }
+  return { nodes, depth, tooLarge: false }
+}
+
 /** Count open shadow roots in a subtree (used for diagnostics/tests). */
 export function countOpenShadowRoots(root: Element): number {
   let count = 0

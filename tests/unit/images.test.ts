@@ -46,6 +46,17 @@ describe('fetchImages', () => {
     expect(result[1]).toMatchObject({ status: 'skipped', reason: 'TOTAL_BUDGET' })
   })
 
+  it('caps the number of images per capture', async () => {
+    const fetchImpl = vi.fn(async () => response(new Uint8Array([1])))
+    const images = Array.from({ length: 150 }, (_, index) => ({
+      assetId: `img-${index + 1}`,
+      sourceUrl: `https://example.com/${index}.png`,
+      alt: ''
+    }))
+    const result = await fetchImages(images, { fetchImpl, maxImages: 100 })
+    expect(result).toHaveLength(100)
+  })
+
   it('reports network errors as failed', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('CORS')

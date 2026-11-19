@@ -74,7 +74,9 @@ export function decodePayload(encoded: string): HandoffPayload {
   return parsePayload(parsed)
 }
 
-export function parsePayload(value: unknown): HandoffPayload {
+export type PayloadChannel = 'inline' | 'file'
+
+export function parsePayload(value: unknown, channel: PayloadChannel = 'inline'): HandoffPayload {
   const result = handoffPayloadSchema.safeParse(value)
   if (!result.success) {
     const issues = result.error.issues.map((issue) => ({
@@ -84,7 +86,7 @@ export function parsePayload(value: unknown): HandoffPayload {
     throw new ProtocolError('E_SCHEMA_INVALID', 'Handoff payload does not match the schema', { issues })
   }
   const payload = result.data as HandoffPayload
-  assertLimits(payload)
+  assertLimits(payload, channel)
   if (!isHandoffDocumentFormat(payload.document.format)) {
     throw new ProtocolError('E_UNSUPPORTED_FORMAT', `Unsupported document format: ${payload.document.format}`)
   }
@@ -95,7 +97,7 @@ export function parsePayload(value: unknown): HandoffPayload {
  * Structural limits that must hold for every channel. The receiver repeats
  * these checks even when the sender already enforced them.
  */
-export function assertLimits(payload: HandoffPayload): void {
+export function assertLimits(payload: HandoffPayload, channel: PayloadChannel = 'inline'): void {
   if (payload.assets.length > MAX_ASSET_COUNT) {
     throw new ProtocolError(
       'E_LIMIT_EXCEEDED',
@@ -126,7 +128,9 @@ export function assertLimits(payload: HandoffPayload): void {
     }
     inlineBytes += bytes
   }
-  if (inlineBytes > MAX_INLINE_ASSET_BYTES) {
+  // The 8 MB total only applies to the inline URL channel. The file channel is
+  // bounded by the file size the receiver accepts (200 MB), not by URL length.
+  if (channel === 'inline' && inlineBytes > MAX_INLINE_ASSET_BYTES) {
     throw new ProtocolError(
       'E_LIMIT_EXCEEDED',
       `Inline assets total ${inlineBytes} bytes; the limit is ${MAX_INLINE_ASSET_BYTES}`,
@@ -150,8 +154,11 @@ export async function verifyPayloadChecksum(payload: HandoffPayload): Promise<vo
 }
 
 /** Full validation used by receivers: schema, limits, checksum. */
-export async function validatePayload(value: unknown): Promise<HandoffPayload> {
-  const payload = parsePayload(value)
+export async function validatePayload(
+  value: unknown,
+  options: { channel?: PayloadChannel } = {}
+): Promise<HandoffPayload> {
+  const payload = parsePayload(value, options.channel ?? 'inline')
   await verifyPayloadChecksum(payload)
   return payload
 }

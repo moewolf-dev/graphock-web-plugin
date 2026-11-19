@@ -23,6 +23,11 @@ All notable changes are documented here. This project follows [Semantic Versioni
   manifest, unsigned Safari archive.
 - Safari container project generated from the Safari build variant (classic service worker,
   no downloads/offscreen APIs, save-page fallback), with an idempotent regeneration script.
+- Audit fixes: cancel now aborts background work and leaves no downloads/history; channel-aware
+  protocol limits shared with the receiver; full-page HTML honours embed/link/skip and allows
+  inlined fonts; duplicate image URLs keep every reference; atomic receiver writes; explicit
+  zip-preview expiry; DOM/stream size guards before allocation; TXT export and validated
+  settings import.
 - Protocol v1 spec (`docs/protocol/CUSTOM_PROTOCOL_IMPORT.md`) with inline/file/wake channels.
 - `@graphock/clip-model`: document model, zod schema, canonical JSON, checksums.
 - `@graphock/handoff`: URL builder/parser, DEFLATE + base64url encoding, limits, error codes.

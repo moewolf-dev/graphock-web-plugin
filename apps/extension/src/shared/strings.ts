@@ -62,9 +62,20 @@ const en = {
   formatHtml: 'HTML (self-contained)',
   formatJson: 'JSON (document model)',
   formatYaml: 'YAML (document model)',
+  formatTxt: 'Plain text',
   policyEmbed: 'Embed image files (package file when large)',
   policyLink: 'Keep image links only',
-  policySkip: 'Text only'
+  policySkip: 'Text only',
+  cancelled: 'Capture cancelled.',
+  openedWake: 'Graphock opened. Choose “Import file” in the app to bring this page in.',
+  savedAndOpening: 'Clip package saved. Graphock should be opening with it.',
+  openedConfirm: 'Graphock should be opening. Confirm the browser prompt if it appears.',
+  protocolBlocked: 'The browser blocked the custom protocol. Copy the import link and open it manually.',
+  expiredPreview: 'This preview expired. Capture the page again.',
+  savedAs: 'Saved as {name}.',
+  saveFailed: 'Save failed: {message}',
+  zipUnavailable:
+    'This browser cannot save a zip. Use “Open in Graphock” to keep embedded images.'
 } as const
 
 export type StringKey = keyof typeof en
@@ -126,9 +137,19 @@ const zh: Record<StringKey, string> = {
   formatHtml: 'HTML（单文件）',
   formatJson: 'JSON（文档模型）',
   formatYaml: 'YAML（文档模型）',
+  formatTxt: '纯文本',
   policyEmbed: '嵌入图片（过大时生成压缩包）',
   policyLink: '只保留图片链接',
-  policySkip: '纯文本'
+  policySkip: '纯文本',
+  cancelled: '已取消抓取。',
+  openedWake: '已打开 Graphock，请在应用内选择“导入文件”。',
+  savedAndOpening: '剪藏包已保存，Graphock 正在打开。',
+  openedConfirm: 'Graphock 正在打开，请确认浏览器的提示。',
+  protocolBlocked: '浏览器阻止了自定义协议，请复制导入链接后手动打开。',
+  expiredPreview: '预览已过期，请重新抓取页面。',
+  savedAs: '已保存为 {name}。',
+  saveFailed: '保存失败：{message}',
+  zipUnavailable: '此浏览器无法保存压缩包。请使用“在 Graphock 中打开”以保留嵌入图片。'
 }
 
 export function currentLocale(): 'en' | 'zh' {

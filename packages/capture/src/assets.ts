@@ -42,14 +42,25 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * Paths are always relative and derived from the digest, never from the
  * remote URL, so hostile filenames cannot influence the output tree.
  */
-export async function storeAssets(inputs: AssetInput[]): Promise<StoredAsset[]> {
-  const seen = new Map<string, StoredAsset>()
+export type StoredAssetsResult = {
+  assets: StoredAsset[]
+  /** assetId for each input, in the same order; duplicate bytes share an id. */
+  assetIdByInput: string[]
+}
+
+export async function storeAssetsWithMapping(inputs: AssetInput[]): Promise<StoredAssetsResult> {
+  const byDigest = new Map<string, StoredAsset>()
+  const assetIdByInput: string[] = []
   for (const input of inputs) {
     const digest = await sha256Hex(input.bytes)
-    if (seen.has(digest)) continue
-    const id = `a${seen.size + 1}`
+    const existing = byDigest.get(digest)
+    if (existing) {
+      assetIdByInput.push(existing.id)
+      continue
+    }
+    const id = `a${byDigest.size + 1}`
     const extension = extensionForMime(input.mimeType)
-    seen.set(digest, {
+    const asset: StoredAsset = {
       id,
       path: `assets/${id}-${digest.slice(0, 8)}.${extension}`,
       mimeType: input.mimeType,
@@ -58,7 +69,13 @@ export async function storeAssets(inputs: AssetInput[]): Promise<StoredAsset[]> 
       ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
       ...(input.alt ? { alt: input.alt } : {}),
       data: input.bytes
-    })
+    }
+    byDigest.set(digest, asset)
+    assetIdByInput.push(id)
   }
-  return [...seen.values()]
+  return { assets: [...byDigest.values()], assetIdByInput }
+}
+
+export async function storeAssets(inputs: AssetInput[]): Promise<StoredAsset[]> {
+  return (await storeAssetsWithMapping(inputs)).assets
 }

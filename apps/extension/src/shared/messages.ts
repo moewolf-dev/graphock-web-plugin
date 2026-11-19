@@ -3,6 +3,7 @@ export type CaptureMode = 'readable' | 'full' | 'selection'
 export type CollectMessage = {
   type: 'GRAPHOCK_COLLECT'
   mode: CaptureMode
+  imagePolicy?: ImagePolicy
 }
 
 export type CollectedImage = {
@@ -33,6 +34,8 @@ export type CollectedPage = {
   images: CollectedImage[]
   /** Self-contained HTML for full-page mode; absent for other modes. */
   html?: string
+  /** True when the page exceeded the DOM size guard before cloning. */
+  tooLarge?: boolean
   readable: boolean
   text: string
   selectionText: string
@@ -44,21 +47,44 @@ export type CaptureRequest = {
   type: 'GRAPHOCK_CAPTURE'
   mode: CaptureMode
   format?: OutputFormat
+  requestId: string
+}
+
+export type CancelRequest = { type: 'GRAPHOCK_CANCEL'; requestId: string }
+
+export type DeliverRequest = { type: 'GRAPHOCK_DELIVER'; clipId: string }
+
+export type DeliverResult =
+  | {
+      ok: true
+      url: string
+      channel: 'inline' | 'file' | 'wake'
+      savedFilename?: string
+      savedPath?: string
+      fallbackReason?: string
+    }
+  | { ok: false; code: string; message: string }
+
+export type Capabilities = {
+  downloads: boolean
+  offscreen: boolean
+  zip: boolean
+  fileChannel: boolean
 }
 
 export type CaptureResult =
   | {
       ok: true
-      url: string
-      channel: 'inline' | 'file' | 'wake'
+      requestId: string
+      url?: string
+      channel: 'inline' | 'file-ready' | 'wake'
       mode: CaptureMode
       title: string
       clipId: string
       markdown: string
       bytes: number
-      urlLength: number
-      savedFilename?: string
-      format: 'markdown' | 'html' | 'json' | 'yaml'
+      urlLength?: number
+      format: OutputFormat
       content: string
       assetCount: number
       embeddedAssets: number
@@ -66,6 +92,7 @@ export type CaptureResult =
       failedAssets: number
       skippedAssets: number
       canRequestImageAccess: boolean
+      canSaveZip: boolean
       fallbackReason?: string
     }
   | { ok: false; code: string; message: string }
@@ -74,7 +101,7 @@ export type OpenRequest = { type: 'GRAPHOCK_OPEN'; url: string }
 export type SaveRequest = {
   type: 'GRAPHOCK_SAVE'
   content: string
-  format: 'markdown' | 'html' | 'json' | 'yaml'
+  format: OutputFormat
   title: string
   clipId: string
   withAssets?: boolean
@@ -85,14 +112,14 @@ export type HistoryEntry = {
   title: string
   url: string
   createdAt: string
-  format: 'markdown' | 'html' | 'json' | 'yaml'
+  format: OutputFormat
   channel: 'inline' | 'file' | 'wake'
   bytes: number
 }
 
 export type ImagePolicy = 'embed' | 'link' | 'skip'
 
-export type OutputFormat = 'markdown' | 'html' | 'json' | 'yaml'
+export type OutputFormat = 'markdown' | 'html' | 'json' | 'yaml' | 'txt'
 
 export type Settings = {
   targetScheme: string

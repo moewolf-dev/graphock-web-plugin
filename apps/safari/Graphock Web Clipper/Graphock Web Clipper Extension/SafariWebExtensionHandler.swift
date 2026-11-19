@@ -2,7 +2,7 @@
 //  SafariWebExtensionHandler.swift
 //  Graphock Web Clipper Extension
 //
-//  Created by Xiaolang on 2026/11/18.
+//  Created by Xiaolang on 2026/11/19.
 //
 
 import SafariServices

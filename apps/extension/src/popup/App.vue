@@ -19,6 +19,7 @@ const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
 const notice = ref('')
 const copied = ref(false)
 let requestSeq = 0
+let currentRequestId = ''
 
 const modes: { value: CaptureMode; label: string; hint: string }[] = [
   { value: 'readable', label: t('readable'), hint: 'Main article text' },
@@ -30,7 +31,8 @@ const formats: { value: OutputFormat; label: string }[] = [
   { value: 'markdown', label: 'MD' },
   { value: 'html', label: 'HTML' },
   { value: 'json', label: 'JSON' },
-  { value: 'yaml', label: 'YAML' }
+  { value: 'yaml', label: 'YAML' },
+  { value: 'txt', label: 'TXT' }
 ]
 
 const policies: { value: ImagePolicy; label: string; hint: string }[] = [
@@ -58,8 +60,8 @@ const metaText = computed(() => {
   if (value.channel === 'inline') {
     return `${kb} KB · link ${value.urlLength.toLocaleString()} characters${images}`
   }
-  if (value.channel === 'file') {
-    return `${kb} KB · package ${value.savedFilename ?? 'saved'}${images}`
+  if (value.channel === 'file-ready') {
+    return `${kb} KB · package is written when you open Graphock${images}`
   }
   return `${kb} KB · saved as file, open Graphock manually${images}`
 })
@@ -73,6 +75,7 @@ async function loadSettings(): Promise<void> {
 
 async function capture(): Promise<void> {
   const seq = ++requestSeq
+  currentRequestId = crypto.randomUUID()
   loading.value = true
   notice.value = ''
   copied.value = false
@@ -80,7 +83,8 @@ async function capture(): Promise<void> {
     const response = (await chrome.runtime.sendMessage({
       type: 'GRAPHOCK_CAPTURE',
       mode: mode.value,
-      format: format.value
+      format: format.value,
+      requestId: currentRequestId
     })) as CaptureResult
     if (seq !== requestSeq) return
     result.value = response
@@ -98,8 +102,9 @@ async function capture(): Promise<void> {
 
 function cancelCapture(): void {
   requestSeq += 1
+  void chrome.runtime.sendMessage({ type: 'GRAPHOCK_CANCEL', requestId: currentRequestId })
   loading.value = false
-  notice.value = 'Capture cancelled.'
+  notice.value = t('cancelled')
 }
 
 function setMode(next: CaptureMode): void {
@@ -123,10 +128,10 @@ function setPolicy(next: ImagePolicy): void {
 
 async function copyLink(): Promise<void> {
   const value = result.value
-  if (!value?.ok) return
+  if (!value?.ok || !value.url) return
   await navigator.clipboard.writeText(value.url)
   copied.value = true
-  notice.value = 'Protocol link copied.'
+  notice.value = t('copied')
 }
 
 async function requestImageAccess(): Promise<void> {
@@ -143,17 +148,27 @@ async function openApp(): Promise<void> {
   busy.value = true
   notice.value = ''
   try {
+    const delivered = (await chrome.runtime.sendMessage({
+      type: 'GRAPHOCK_DELIVER',
+      clipId: value.clipId
+    })) as
+      | { ok: true; url: string; channel: 'inline' | 'file' | 'wake'; savedFilename?: string; fallbackReason?: string }
+      | { ok: false; code: string; message: string }
+    if (!delivered.ok) {
+      notice.value = `${delivered.code}: ${delivered.message}`
+      return
+    }
     // Keep the navigation in the popup: the click gesture is required for the
     // browser to hand the custom scheme to the OS.
-    await chrome.tabs.create({ url: value.url })
+    await chrome.tabs.create({ url: delivered.url })
     notice.value =
-      value.channel === 'wake'
-        ? 'Graphock opened. Choose “Import file” in the app to bring this page in.'
-        : value.channel === 'file'
-          ? `Saved ${value.savedFilename}. Graphock should be opening with it.`
-          : 'Graphock should be opening. Confirm the browser prompt if it appears.'
+      delivered.channel === 'wake'
+        ? t('openedWake')
+        : delivered.channel === 'file'
+          ? t('savedAndOpening')
+          : t('openedConfirm')
   } catch {
-    notice.value = 'The browser blocked the custom protocol. Copy the import link and open it manually.'
+    notice.value = t('protocolBlocked')
   } finally {
     busy.value = false
   }
@@ -161,7 +176,7 @@ async function openApp(): Promise<void> {
 
 const saveNeedsZip = computed(() => {
   const value = result.value
-  return Boolean(value?.ok && value.embeddedAssets > 0 && value.format !== 'html')
+  return Boolean(value?.ok && value.canSaveZip && value.embeddedAssets > 0 && value.format !== 'html')
 })
 
 async function saveFile(): Promise<void> {
@@ -179,8 +194,11 @@ async function saveFile(): Promise<void> {
       withAssets: saveNeedsZip.value
     })) as { ok: boolean; filename?: string; code?: string; message?: string }
     notice.value = response.ok
-      ? `Saved as ${response.filename}.`
-      : `${response.code ?? 'E_SAVE'}: ${response.message ?? 'Save failed.'}`
+      ? t('savedAs').replace('{name}', response.filename ?? '')
+      : t('saveFailed').replace(
+          '{message}',
+          `${response.code ?? 'E_SAVE'}: ${response.message ?? ''}`.trim()
+        )
   } finally {
     busy.value = false
   }
@@ -283,6 +301,14 @@ onMounted(async () => {
     >
       {{ t('someImagesFailed') }}
     </p>
+
+    <p
+      v-if="result?.ok && result.embeddedAssets > 0 && !result.canSaveZip && result.format !== 'html'"
+      class="clip__warning"
+      role="status"
+    >
+      {{ t('zipUnavailable') }}
+    </p>
     <button
       v-if="result?.ok && result.canRequestImageAccess"
       class="clip__button"
@@ -302,7 +328,12 @@ onMounted(async () => {
         {{ t('openInGraphock') }}
       </button>
       <div class="clip__row">
-        <button class="clip__button" type="button" :disabled="!result?.ok" @click="copyLink">
+        <button
+          class="clip__button"
+          type="button"
+          :disabled="!result?.ok || !result.url"
+          @click="copyLink"
+        >
           {{ copied ? t('copied') : t('copyImportLink') }}
         </button>
         <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="saveFile">

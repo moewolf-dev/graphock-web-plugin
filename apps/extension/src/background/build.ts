@@ -11,8 +11,9 @@ import {
 } from '@graphock/clip-model'
 import { base64ToBytes, bytesToBase64 } from '@graphock/capture/base64'
 import { strToU8, zipSync } from 'fflate'
-import { storeAssets } from '@graphock/capture/assets'
-import { toHtml, toJson, toMarkdown, toYaml } from '@graphock/converters'
+import { storeAssetsWithMapping } from '@graphock/capture/assets'
+import { readResponseLimited } from '@graphock/capture/images'
+import { toHtml, toJson, toMarkdown, toPlainText, toYaml } from '@graphock/converters'
 import { buildInlineUrl, isAbsolutePath, ProtocolError } from '@graphock/handoff'
 import type { CollectedPage, OutputFormat } from '../shared/messages'
 
@@ -130,7 +131,7 @@ export async function buildClip(
     const fetched = collected.images.filter((image) => image.status === 'fetched' && image.dataBase64)
 
     if (options.imagePolicy === 'embed' && fetched.length > 0) {
-      const stored = await storeAssets(
+      const stored = await storeAssetsWithMapping(
         fetched.map((image) => ({
           sourceUrl: image.sourceUrl,
           mimeType: image.mimeType ?? 'application/octet-stream',
@@ -138,11 +139,13 @@ export async function buildClip(
           ...(image.alt ? { alt: image.alt } : {})
         }))
       )
-      const bySource = new Map(stored.map((asset) => [asset.sourceUrl ?? '', asset]))
-      for (const image of fetched) {
-        const asset = bySource.get(image.sourceUrl)
-        if (!asset) continue
-        imageIdMapping.set(image.assetId, asset.id)
+      // Map every original image id to the canonical asset, so two URLs that
+      // serve identical bytes keep two independent references in the document.
+      fetched.forEach((image, index) => {
+        const id = stored.assetIdByInput[index]
+        if (id) imageIdMapping.set(image.assetId, id)
+      })
+      for (const asset of stored.assets) {
         if (assets.some((entry) => entry.id === asset.id)) continue
         assets.push({
           id: asset.id,
@@ -155,8 +158,8 @@ export async function buildClip(
           status: 'embedded'
         })
         assetDataByPath.set(asset.path, bytesToBase64(asset.data))
-        embedded += 1
       }
+      embedded = stored.assets.length
     }
 
     // Images we could not (or chose not to) embed stay as links so the user
@@ -292,6 +295,8 @@ function serialise(
       return toJson(document)
     case 'yaml':
       return toYaml(document)
+    case 'txt':
+      return toPlainText(document)
     case 'markdown':
     default:
       return markdown
@@ -367,9 +372,35 @@ export type InlineCssOptions = {
   maxAssetBytes?: number
   maxTotalBytes?: number
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }
 
 const CSS_URL_PATTERN = /url\(\s*(['"]?)([^'")]+)\1\s*\)/giu
+
+/** Remove images and CSS image/font references for the text-only policy. */
+export function stripHtmlImages(html: string): string {
+  let output = html
+    .replace(/<picture\b[\s\S]*?<\/picture>/giu, '')
+    .replace(/<img\b[^>]*>/giu, '')
+    .replace(/<source\b[^>]*>/giu, '')
+    .replace(/@font-face\s*\{[^}]*\}/giu, '')
+  // Drop declarations that reference external resources (background-image,
+  // border-image, font src). Gradients and plain colours are preserved.
+  output = output.replace(/[a-z-]+\s*:\s*[^;}]*url\([^)]*\)[^;}]*;?/giu, '')
+  return output
+}
+
+export async function prepareHtmlSnapshot(
+  html: string,
+  policy: 'embed' | 'link' | 'skip',
+  images: Array<{ sourceUrl: string; dataBase64?: string; mimeType?: string }>,
+  options: InlineCssOptions = {}
+): Promise<string> {
+  if (policy === 'skip') return stripHtmlImages(html)
+  if (policy === 'link') return html
+  const inlined = inlineHtmlImages(html, images)
+  return inlineCssAssets(inlined, options)
+}
 
 /**
  * Fetch CSS `url(...)` targets (background images, webfonts) and inline them as
@@ -397,11 +428,17 @@ export async function inlineCssAssets(
   const replacements = new Map<string, string>()
   let total = 0
   for (const url of urls) {
+    if (options.signal?.aborted) {
+      throw new ProtocolError('E_CAPTURE_CANCELLED', 'Capture was cancelled')
+    }
     try {
-      const response = await fetchImpl(url, { credentials: 'omit' })
+      const response = await fetchImpl(url, {
+        credentials: 'omit',
+        ...(options.signal ? { signal: options.signal } : {})
+      })
       if (!response.ok) continue
       const header = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
-      const bytes = new Uint8Array(await response.arrayBuffer())
+      const bytes = await readResponseLimited(response, maxAssetBytes)
       if (bytes.byteLength > maxAssetBytes || total + bytes.byteLength > maxTotalBytes) continue
       total += bytes.byteLength
       const mime = header || (/\.(woff2?|ttf|otf)$/iu.test(url) ? 'font/woff2' : 'application/octet-stream')

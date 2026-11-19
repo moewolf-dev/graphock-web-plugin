@@ -2,7 +2,7 @@
 //  ViewController.swift
 //  Graphock Web Clipper
 //
-//  Created by Xiaolang on 2026/11/18.
+//  Created by Xiaolang on 2026/11/19.
 //
 
 import Cocoa

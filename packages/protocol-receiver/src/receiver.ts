@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import {
   HANDOFF_SCHEMA,
@@ -91,7 +91,7 @@ async function readPayloadFile(filePath: string, maxBytes: number): Promise<Hand
   } catch {
     throw new ProtocolError('E_PAYLOAD_ENCODING', 'Handoff file is not valid JSON')
   }
-  return validatePayload(parsed)
+  return validatePayload(parsed, { channel: 'file' })
 }
 
 /**
@@ -124,22 +124,14 @@ export async function materializePayload(
     }
   }
 
-  const extension = extensionForFormat(payload.document.format)
-  const documentPath = join(directory, `document.${extension}`)
-  const assetPaths: string[] = []
-  const assetRoot = join(directory, 'assets')
-
-  await mkdir(assetRoot, { recursive: true })
-  await writeFile(documentPath, payload.document.content, 'utf8')
-
-  let bytesWritten = Buffer.byteLength(payload.document.content, 'utf8')
-
-  for (const asset of payload.assets) {
+  // Validate every asset before touching the destination. The final directory
+  // is only created by an atomic rename after all checks pass.
+  const prepared = payload.assets.map((asset) => {
     const relative = sanitizeRelativePath(asset.path)
     if (relative !== asset.path) {
       throw new ProtocolError('E_PATH_NOT_ALLOWED', `Asset path was normalized unexpectedly: ${asset.path}`)
     }
-    if (!asset.data) continue
+    if (!asset.data) return { asset, relative, bytes: undefined }
     const bytes = base64ToBytes(asset.data)
     const digest = createHash('sha256').update(bytes).digest('hex')
     if (digest !== asset.sha256) {
@@ -148,39 +140,71 @@ export async function materializePayload(
         actual: digest
       })
     }
-    const target = join(directory, relative)
-    await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, bytes)
-    assetPaths.push(target)
-    bytesWritten += bytes.byteLength
-  }
-
-  const manifest = {
-    schema: HANDOFF_SCHEMA,
-    clipId: payload.clipId,
-    checksum: payload.checksum,
-    receivedAt: new Date().toISOString(),
-    source: payload.source,
-    document: { format: payload.document.format, path: `document.${extension}` },
-    assets: payload.assets.map((asset) => ({
-      path: asset.path,
-      mimeType: asset.mimeType,
-      sha256: asset.sha256,
-      stored: Boolean(asset.data)
-    })),
-    generator: payload.generator
-  }
-  await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    return { asset, relative, bytes }
+  })
 
   await verifyManifestChecksum(payload)
 
-  return {
-    clipId: payload.clipId,
-    checksum: payload.checksum,
-    directory,
-    documentPath,
-    assetPaths,
-    bytesWritten
+  const staging = join(outDir, `.staging-${payload.clipId}-${crypto.randomUUID()}`)
+  const documentName = `document.${extensionForFormat(payload.document.format)}`
+
+  try {
+    await mkdir(join(staging, 'assets'), { recursive: true })
+    await writeFile(join(staging, documentName), payload.document.content, 'utf8')
+
+    const assetPaths: string[] = []
+    let bytesWritten = Buffer.byteLength(payload.document.content, 'utf8')
+
+    for (const entry of prepared) {
+      if (!entry.bytes) continue
+      const target = join(staging, entry.relative)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, entry.bytes)
+      assetPaths.push(join(directory, entry.relative))
+      bytesWritten += entry.bytes.byteLength
+    }
+
+    const manifest = {
+      schema: HANDOFF_SCHEMA,
+      clipId: payload.clipId,
+      checksum: payload.checksum,
+      receivedAt: new Date().toISOString(),
+      source: payload.source,
+      document: { format: payload.document.format, path: documentName },
+      assets: payload.assets.map((asset) => ({
+        path: asset.path,
+        mimeType: asset.mimeType,
+        sha256: asset.sha256,
+        stored: Boolean(asset.data)
+      })),
+      generator: payload.generator
+    }
+    await writeFile(join(staging, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+
+    if (options.allowDuplicate) await rm(directory, { recursive: true, force: true })
+    try {
+      await rename(staging, directory)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'EEXIST' || code === 'ENOTEMPTY' || code === 'EACCES') {
+        throw new ProtocolError('E_DUPLICATE_CLIP', `Clip ${payload.clipId} was imported concurrently`, {
+          directory
+        })
+      }
+      throw error
+    }
+
+    return {
+      clipId: payload.clipId,
+      checksum: payload.checksum,
+      directory,
+      documentPath: join(directory, documentName),
+      assetPaths,
+      bytesWritten
+    }
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true })
+    throw error
   }
 }
 

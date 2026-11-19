@@ -9,27 +9,31 @@
  * Requirements: Xcode with `safari-web-extension-converter`.
  */
 import { execFileSync } from 'node:child_process'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const dist = join(root, 'apps/extension/dist/safari')
 const projectRoot = join(root, 'apps/safari')
-const projectDir = join(projectRoot, 'Graphock Web Clipper')
-const pbxproj = join(projectDir, 'Graphock Web Clipper.xcodeproj/project.xcproj')
+const stagingRoot = join(root, 'apps/.safari-staging')
+const pbxprojRelative = 'Graphock Web Clipper.xcodeproj/project.xcproj'
 
 const APP_ID = 'com.moewolf.graphock.webclip'
 
 execFileSync('pnpm', ['build:safari'], { cwd: root, stdio: 'inherit' })
-await rm(projectRoot, { recursive: true, force: true })
+
+// Generate into a staging directory first. If conversion fails, the existing
+// project (and its README) stays intact.
+await rm(stagingRoot, { recursive: true, force: true })
+try {
 execFileSync(
   'xcrun',
   [
     'safari-web-extension-converter',
     dist,
     '--project-location',
-    projectRoot,
+    stagingRoot,
     '--app-name',
     'Graphock Web Clipper',
     '--bundle-identifier',
@@ -41,8 +45,11 @@ execFileSync(
   { cwd: root, stdio: 'inherit' }
 )
 
+const stagingProject = join(stagingRoot, 'Graphock Web Clipper')
+const pbxproj = join(stagingProject, pbxprojRelative)
+
 // Privacy manifest: no tracking, no collected data.
-const extensionDir = join(projectDir, 'Graphock Web Clipper Extension')
+const extensionDir = join(stagingProject, 'Graphock Web Clipper Extension')
 await writeFile(
   join(extensionDir, 'PrivacyInfo.xcprivacy'),
   `<?xml version="1.0" encoding="UTF-8"?>
@@ -77,7 +84,7 @@ if (!patched.includes('PrivacyInfo.xcprivacy')) {
 await writeFile(pbxproj, patched)
 
 // App icon: resize the committed master with sips (macOS-only project).
-const appIconDir = join(projectDir, 'Graphock Web Clipper/Assets.xcassets/AppIcon.appiconset')
+const appIconDir = join(stagingProject, 'Graphock Web Clipper/Assets.xcassets/AppIcon.appiconset')
 const master = join(root, 'tooling/assets/app-icon-1024.png')
 const iconSizes = [
   ['mac-icon-16@1x.png', 16],
@@ -96,6 +103,10 @@ for (const [name, size] of iconSizes) {
     stdio: 'ignore'
   })
 }
+
+await rm(projectRoot, { recursive: true, force: true })
+await mkdir(projectRoot, { recursive: true })
+await rename(stagingProject, join(projectRoot, 'Graphock Web Clipper'))
 
 await writeFile(
   join(projectRoot, 'README.md'),
@@ -123,4 +134,7 @@ To run it locally: open the project, pick **Sign to Run Locally**, run the conta
 then enable the extension in Safari → Settings → Extensions (see \`docs/qa/local-dev.md\`).
 `
 )
-console.log(`safari-project: generated ${projectDir}`)
+console.log(`safari-project: generated ${projectRoot}`)
+} finally {
+  await rm(stagingRoot, { recursive: true, force: true })
+}

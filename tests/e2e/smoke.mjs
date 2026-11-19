@@ -13,6 +13,9 @@
  *
  * Usage: pnpm test:e2e
  */
+import { execFileSync } from 'node:child_process'
+import { strFromU8, unzipSync } from 'fflate'
+import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
@@ -81,6 +84,9 @@ async function findChrome() {
   return undefined
 }
 
+const hits = { image: 0, background: 0, font: 0 }
+let slowImage = false
+
 async function serve() {
   // 1x1 transparent PNG.
   const png = Buffer.from(
@@ -102,12 +108,45 @@ async function serve() {
         <img src="/big.png" alt="Large"></main></body></html>`)
       return
     }
+    if (request.url === '/slow.png') {
+      slowImage = true
+      setTimeout(() => {
+        response.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
+        response.end(png)
+      }, 2_000)
+      return
+    }
+    if (request.url === '/slow') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end(`<!doctype html><html><head><title>Slow clip</title></head><body>
+        <main><h1>Slow clip</h1><p>This page loads an image slowly so the capture can be cancelled.</p>
+        <img src="/slow.png" alt="Slow"></main></body></html>`)
+      return
+    }
+    if (request.url === '/bg.png') {
+      hits.background += 1
+      response.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
+      response.end(png)
+      return
+    }
+    if (request.url === '/font.woff2') {
+      hits.font += 1
+      const font = Buffer.alloc(2048, 9)
+      response.writeHead(200, { 'content-type': 'font/woff2', 'content-length': font.length })
+      response.end(font)
+      return
+    }
     if (request.url === '/style.css') {
       response.writeHead(200, { 'content-type': 'text/css' })
-      response.end('body { color: rgb(18, 52, 86); } .marker { border-left: 3px solid teal; }')
+      response.end(
+        'body { color: rgb(18, 52, 86); } .marker { border-left: 3px solid teal; }' +
+          '@font-face { font-family: E2E; src: url("/font.woff2") format("woff2"); }' +
+          'body { background-image: url("/bg.png"); font-family: E2E, sans-serif; }'
+      )
       return
     }
     if (request.url === '/img.png') {
+      hits.image += 1
       response.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
       response.end(png)
       return
@@ -338,7 +377,145 @@ async function main() {
       fail('saved file content does not match what was requested')
     }
 
-    // Large embedded clip: inline URL must fail, file channel must save a package.
+    // Full-page HTML must respect all three image policies.
+    await page.bringToFront()
+    await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get('settings')
+      await chrome.storage.local.set({ settings: { ...(stored.settings ?? {}), imagePolicy: 'link' } })
+    })
+    const linkHits = { ...hits }
+    const htmlLink = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'full', format: 'html', requestId: crypto.randomUUID() })
+    )
+    if (!htmlLink?.ok) throw new Error('link-policy HTML capture failed')
+    if (htmlLink.content.includes('data:image')) fail('link policy embedded image bytes in HTML')
+    if (!htmlLink.content.includes('/img.png')) fail('link policy dropped image URLs')
+    if (hits.image !== linkHits.image || hits.background !== linkHits.background) {
+      fail('link policy unexpectedly fetched image resources')
+    }
+
+    await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get('settings')
+      await chrome.storage.local.set({ settings: { ...(stored.settings ?? {}), imagePolicy: 'skip' } })
+    })
+    const skipHits = { ...hits }
+    const htmlSkip = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'full', format: 'html', requestId: crypto.randomUUID() })
+    )
+    if (!htmlSkip?.ok) throw new Error('skip-policy HTML capture failed')
+    if (htmlSkip.content.includes('<img')) fail('text-only policy kept <img> elements')
+    if (htmlSkip.content.includes('data:image') || htmlSkip.content.includes('data:font')) {
+      fail('text-only policy embedded resources')
+    }
+    if (htmlSkip.content.includes('url(http')) fail('text-only policy kept CSS image URLs')
+    if (hits.image !== skipHits.image || hits.font !== skipHits.font) {
+      fail('text-only policy fetched image or font resources')
+    }
+
+    await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get('settings')
+      await chrome.storage.local.set({ settings: { ...(stored.settings ?? {}), imagePolicy: 'embed' } })
+    })
+    const embedHits = { ...hits }
+    const htmlEmbed = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'full', format: 'html', requestId: crypto.randomUUID() })
+    )
+    if (!htmlEmbed?.ok) throw new Error('embed-policy HTML capture failed')
+    if (!htmlEmbed.content.includes('data:image')) fail('embed policy did not inline images')
+    if (!htmlEmbed.content.includes('data:font/woff2')) fail('embed policy did not inline fonts')
+    if (!htmlEmbed.content.includes('font-src data:')) fail('HTML CSP blocks inlined fonts')
+    if (hits.image <= embedHits.image || hits.font <= embedHits.font) {
+      fail('embed policy did not fetch image and font resources')
+    }
+
+    // ZIP save uses the prepared build; missing previews must fail explicitly.
+    const zipCapture = await popup.evaluate((requestId) =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'readable', format: 'markdown', requestId }), randomUUID())
+    if (!zipCapture?.ok || !zipCapture.canSaveZip) {
+      console.error('e2e:smoke: zip capture:', zipCapture)
+      throw new Error('zip capture did not expose a save-with-assets option')
+    }
+    const zipBaseline = await popup.evaluate(() =>
+      chrome.downloads.search({}).then((items) => items.map((item) => item.id)))
+    const zipSave = await popup.evaluate((value) =>
+      chrome.runtime.sendMessage({
+        type: 'GRAPHOCK_SAVE',
+        content: value.content,
+        format: value.format,
+        title: value.title,
+        clipId: value.clipId,
+        withAssets: true
+      }), zipCapture)
+    if (!zipSave?.ok || !zipSave.filename?.endsWith('.zip')) {
+      console.error('e2e:smoke: zip save:', zipSave)
+      throw new Error('zip save failed')
+    }
+    const zipItems = await popup.evaluate(() => chrome.downloads.search({}))
+    const zipItem = zipItems.find(
+      (item) => !zipBaseline.includes(item.id) && item.state === 'complete' && item.filename
+    )
+    if (!zipItem) throw new Error('zip download was not completed')
+    const zipEntries = unzipSync(new Uint8Array(await readFile(zipItem.filename)))
+    if (!zipEntries['document.md'] || !zipEntries['manifest.json']) {
+      throw new Error('zip is missing document or manifest')
+    }
+    if (!Object.keys(zipEntries).some((name) => name.startsWith('assets/'))) {
+      throw new Error('zip is missing assets')
+    }
+    const manifest = JSON.parse(strFromU8(zipEntries['manifest.json']))
+    if (manifest.assets.some((asset) => asset.data)) {
+      throw new Error('zip manifest duplicated base64 asset data')
+    }
+
+    const expired = await popup.evaluate(() =>
+      chrome.runtime.sendMessage({
+        type: 'GRAPHOCK_SAVE',
+        content: 'x',
+        format: 'markdown',
+        title: 'expired',
+        clipId: crypto.randomUUID(),
+        withAssets: true
+      }))
+    if (expired?.ok || expired?.code !== 'E_BUILD_EXPIRED') {
+      console.error('e2e:smoke: expired save:', expired)
+      fail('missing preview did not fail explicitly')
+    }
+
+    // Cancel must stop the background capture with no downloads or history.
+    await page.goto(url + 'slow')
+    await page.bringToFront()
+    await popup.evaluate(async () => {
+      const stored = await chrome.storage.local.get('settings')
+      await chrome.storage.local.set({ settings: { ...(stored.settings ?? {}), imagePolicy: 'embed' } })
+    })
+    const beforeCancel = await popup.evaluate(async () => {
+      const downloads = await chrome.downloads.search({})
+      const stored = await chrome.storage.local.get('history')
+      return { downloads: downloads.length, history: Array.isArray(stored.history) ? stored.history.length : 0 }
+    })
+    const cancelId = randomUUID()
+    const pendingCapture = popup.evaluate((requestId) =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'readable', format: 'markdown', requestId }), cancelId)
+    await new Promise((resolveWait) => setTimeout(resolveWait, 150))
+    await popup.evaluate((requestId) =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CANCEL', requestId }), cancelId)
+    const cancelled = await pendingCapture
+    if (cancelled?.ok || cancelled?.code !== 'E_CAPTURE_CANCELLED') {
+      console.error('e2e:smoke: cancelled result:', cancelled)
+      fail('cancel did not abort the capture')
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 2_500))
+    const afterCancel = await popup.evaluate(async () => {
+      const downloads = await chrome.downloads.search({})
+      const stored = await chrome.storage.local.get('history')
+      return { downloads: downloads.length, history: Array.isArray(stored.history) ? stored.history.length : 0 }
+    })
+    if (afterCancel.downloads !== beforeCancel.downloads) fail('cancel still created a download')
+    if (afterCancel.history !== beforeCancel.history) fail('cancel still wrote history')
+    if (!slowImage) fail('slow image endpoint was not requested')
+
+    // Large embedded clip: capture is now side-effect free; delivery writes the
+    // package, and the reference receiver must accept what the browser wrote.
     await page.goto(url + 'big')
     await page.bringToFront()
     await popup.evaluate(async () => {
@@ -347,18 +524,56 @@ async function main() {
         settings: { ...(stored.settings ?? {}), imagePolicy: 'embed' }
       })
     })
-    const bigResult = await popup.evaluate(() =>
-      chrome.runtime.sendMessage({ type: 'GRAPHOCK_CAPTURE', mode: 'readable', format: 'markdown' })
-    )
+    const bigCapture = await popup.evaluate((requestId) =>
+      chrome.runtime.sendMessage({
+        type: 'GRAPHOCK_CAPTURE',
+        mode: 'readable',
+        format: 'markdown',
+        requestId
+      }), randomUUID())
+    if (!bigCapture?.ok || bigCapture.channel !== 'file-ready') {
+      console.error('e2e:smoke: big capture:', bigCapture)
+      throw new Error('large clip did not prepare the file channel')
+    }
+    const bigResult = await popup.evaluate((clipId) =>
+      chrome.runtime.sendMessage({ type: 'GRAPHOCK_DELIVER', clipId }), bigCapture.clipId)
     if (!bigResult?.ok || bigResult.channel !== 'file') {
-      console.error('e2e:smoke: big result:', bigResult)
-      throw new Error('large clip did not use the file channel')
+      console.error('e2e:smoke: big deliver:', bigResult)
+      throw new Error('large clip did not deliver the file channel')
     }
     if (!bigResult.savedFilename?.endsWith('.graphock-clip.json')) {
       fail('large clip did not save a .graphock-clip.json package')
     }
     if (!bigResult.url.startsWith('graphock-direct://import?file=')) {
       fail(`unexpected file-channel URL: ${bigResult.url.slice(0, 60)}`)
+    }
+
+    // Hand the browser-produced package to the reference receiver.
+    const receiverOut = await mkdtemp(join(tmpdir(), 'graphock-e2e-receiver-'))
+    try {
+      const output = execFileSync(
+        'pnpm',
+        [
+          'exec',
+          'tsx',
+          'packages/protocol-receiver/src/cli.ts',
+          '--out',
+          receiverOut,
+          '--url',
+          bigResult.url
+        ],
+        { cwd: root, encoding: 'utf8' }
+      )
+      const imported = JSON.parse(output.slice(output.indexOf('{')))
+      if (imported.channel !== 'file' || !imported.assetPaths?.length) {
+        console.error('e2e:smoke: receiver output:', imported)
+        throw new Error('reference receiver rejected the browser package')
+      }
+      const document = await readFile(imported.documentPath, 'utf8')
+      if (!document.includes('Big clip')) fail('receiver document is missing the capture')
+      console.log(`e2e:smoke: receiver imported ${imported.assetPaths.length} asset(s)`)
+    } finally {
+      await rm(receiverOut, { recursive: true, force: true })
     }
 
     // Clean up files this test created in the real download folder.
@@ -373,7 +588,7 @@ async function main() {
         }
         await chrome.downloads.erase({ id: item.id })
       }
-    }, [saveResult.filename, bigResult.savedFilename])
+    }, [saveResult.filename, bigResult.savedFilename, zipSave.filename])
 
     console.log('e2e:smoke: selection, link policy, save and file channel OK')
 

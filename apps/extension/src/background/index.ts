@@ -1,26 +1,30 @@
 import type { HandoffPayload } from '@graphock/clip-model'
 import { buildFilename } from '@graphock/converters'
 import {
+  MAX_FILE_PAYLOAD_BYTES,
   ProtocolError,
+  assertLimits,
   buildFileUrl,
   buildWakeUrl
 } from '@graphock/handoff'
+import { fetchImages } from '@graphock/capture/images'
 import {
   DEFAULT_SETTINGS,
+  type CancelRequest,
+  type Capabilities,
   type CaptureRequest,
   type CaptureResult,
   type CollectedPage,
-  type OpenRequest,
+  type DeliverRequest,
+  type DeliverResult,
   type SaveRequest,
   type Settings
 } from '../shared/messages'
-import { fetchImages } from '@graphock/capture/images'
 import { TimeoutError, withTimeout } from './timeout'
 import {
   buildClip,
   buildClipZip,
-  inlineCssAssets,
-  inlineHtmlImages,
+  prepareHtmlSnapshot,
   serializePayload,
   type BuildResult
 } from './build'
@@ -28,23 +32,86 @@ import {
 const GENERATOR_NAME = 'graphock-web-plugin'
 const GENERATOR_VERSION = '0.1.0'
 const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024
-const MAX_PACKAGE_BYTES = 12 * 1024 * 1024
+const MAX_PACKAGE_BYTES = MAX_FILE_PAYLOAD_BYTES
 const FILE_CHANNEL_UNAVAILABLE_SCHEMES = new Set(['graphock'])
 const MAX_PAGE_SAVE_BYTES = 5 * 1024 * 1024
 const HISTORY_KEY = 'history'
 const MAX_HISTORY = 20
+const PREPARED_TTL_MS = 10 * 60 * 1000
+const MAX_PREPARED = 5
+const CAPTURE_DEADLINE_MS = 25_000
 
-const lastBuilds = new Map<string, BuildResult>()
+type Prepared = {
+  build: BuildResult
+  settings: Settings
+  canUseFileChannel: boolean
+  inlineUrl?: string
+  createdAt: number
+  delivered?: DeliverResult
+}
 
-function rememberBuild(build: BuildResult): void {
-  lastBuilds.set(build.document.clipId, build)
-  while (lastBuilds.size > 3) {
-    const oldest = lastBuilds.keys().next().value
-    if (oldest) lastBuilds.delete(oldest)
+const prepared = new Map<string, Prepared>()
+const activeCaptures = new Map<string, AbortController>()
+
+function rememberPrepared(record: Prepared): void {
+  prepared.set(record.build.document.clipId, record)
+  const now = Date.now()
+  for (const [id, entry] of prepared) {
+    if (now - entry.createdAt > PREPARED_TTL_MS) prepared.delete(id)
+  }
+  while (prepared.size > MAX_PREPARED) {
+    const oldest = prepared.keys().next().value
+    if (oldest) prepared.delete(oldest)
   }
 }
 
-async function rememberHistory(build: BuildResult, channel: 'inline' | 'file' | 'wake'): Promise<void> {
+function requirePrepared(clipId: string): Prepared {
+  const record = prepared.get(clipId)
+  if (!record || Date.now() - record.createdAt > PREPARED_TTL_MS) {
+    prepared.delete(clipId)
+    throw new ProtocolError(
+      'E_BUILD_EXPIRED',
+      'This clip preview has expired. Capture the page again before saving or opening it.'
+    )
+  }
+  return record
+}
+
+function abortError(signal: AbortSignal): ProtocolError {
+  return signal.reason === 'timeout'
+    ? new ProtocolError('E_CAPTURE_TIMEOUT', 'Capture exceeded its 25 second deadline')
+    : new ProtocolError('E_CAPTURE_CANCELLED', 'Capture was cancelled')
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw abortError(signal)
+}
+
+/** Reject as soon as the capture is cancelled, even if the wrapped call hangs. */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(abortError(signal))
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      }
+    )
+  })
+}
+
+async function rememberHistory(
+  build: BuildResult,
+  channel: 'inline' | 'file' | 'wake'
+): Promise<void> {
   const stored = await chrome.storage.local.get(HISTORY_KEY)
   const history = Array.isArray(stored[HISTORY_KEY]) ? (stored[HISTORY_KEY] as unknown[]) : []
   const entry = {
@@ -66,6 +133,20 @@ function hasDownloadsApi(): boolean {
 
 function hasOffscreenApi(): boolean {
   return typeof chrome.offscreen?.createDocument === 'function'
+}
+
+function canUseFileChannel(settings: Settings): boolean {
+  return hasDownloadsApi() && !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
+}
+
+function capabilities(settings: Settings): Capabilities {
+  const downloads = hasDownloadsApi()
+  return {
+    downloads,
+    offscreen: hasOffscreenApi(),
+    zip: downloads && hasOffscreenApi(),
+    fileChannel: canUseFileChannel(settings)
+  }
 }
 
 /** Safari fallback: hand the file to an extension page and let it download. */
@@ -93,11 +174,6 @@ function downloadSubdirectory(settings: Settings): string {
 
 let creatingOffscreen: Promise<void> | null = null
 
-/**
- * Ensure the offscreen download helper exists. Service workers cannot create
- * Blob URLs, and Chrome interrupts `data:` downloads, so all file writes go
- * through this document.
- */
 async function ensureOffscreen(): Promise<void> {
   if (await chrome.offscreen.hasDocument()) return
   if (!creatingOffscreen) {
@@ -146,8 +222,7 @@ async function downloadText(
     )
   }
   try {
-    const id = await download({ url: created.url, filename, saveAs: false })
-    return { id }
+    return { id: await download({ url: created.url, filename, saveAs: false }) }
   } catch (error) {
     await chrome.runtime.sendMessage({ type: 'GRAPHOCK_OFFSCREEN_REVOKE', url: created.url })
     throw new ProtocolError(
@@ -163,7 +238,10 @@ async function waitForDownload(id: number): Promise<chrome.downloads.DownloadIte
     const [item] = await chrome.downloads.search({ id })
     if (item?.state === 'complete') return item
     if (item?.state === 'interrupted') {
-      throw new ProtocolError('E_DOWNLOAD_INTERRUPTED', `Download was interrupted: ${item.error ?? 'unknown'}`)
+      throw new ProtocolError(
+        'E_DOWNLOAD_INTERRUPTED',
+        `Download was interrupted: ${item.error ?? 'unknown'}`
+      )
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 150))
   }
@@ -182,12 +260,19 @@ async function savePackage(
       'This browser cannot hand a package file to the app. Use “Save file” instead.'
     )
   }
+  // Validate with the same rules the receiver applies to the file channel.
+  try {
+    assertLimits(payload, 'file')
+  } catch (error) {
+    if (error instanceof ProtocolError) throw error
+    throw new ProtocolError('E_SCHEMA_INVALID', 'Clip package failed validation')
+  }
   const json = serializePayload(payload)
   const bytes = new TextEncoder().encode(json)
   if (bytes.byteLength > MAX_PACKAGE_BYTES) {
     throw new ProtocolError(
       'E_PACKAGE_TOO_LARGE',
-      `Clip package is ${Math.round(bytes.byteLength / 1024)} KB; the current limit is ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`
+      `Clip package is ${Math.round(bytes.byteLength / 1024)} KB; the limit is ${MAX_PACKAGE_BYTES / 1024 / 1024} MB.`
     )
   }
   const filename = buildFilename({
@@ -207,159 +292,244 @@ async function savePackage(
 }
 
 async function capture(request: CaptureRequest): Promise<CaptureResult> {
-  const settings = await getSettings()
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (!tab?.id) {
-    return { ok: false, code: 'E_NO_ACTIVE_TAB', message: 'No active tab is available.' }
-  }
+  const requestId = request.requestId || crypto.randomUUID()
+  const controller = new AbortController()
+  activeCaptures.set(requestId, controller)
+  const deadline = setTimeout(() => controller.abort('timeout'), CAPTURE_DEADLINE_MS)
 
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] })
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'E_INJECTION_FAILED',
-      message:
-        'This page does not allow content scripts (browser pages and the Web Store do not). ' +
-        `[${error instanceof Error ? error.message : 'unknown error'}]`
+    const settings = await getSettings()
+    const signal = controller.signal
+    throwIfAborted(signal)
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (!tab?.id) {
+      return { ok: false, code: 'E_NO_ACTIVE_TAB', message: 'No active tab is available.' }
     }
-  }
 
-  let collected: CollectedPage
-  try {
-    collected = (await withTimeout(
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'GRAPHOCK_COLLECT',
-        mode: request.mode
-      }) as Promise<CollectedPage>,
-      20_000,
-      'The page took too long to capture.'
-    )) as CollectedPage
-  } catch (error) {
-    if (error instanceof TimeoutError) {
-      return {
-        ok: false,
-        code: error.code,
-        message: 'This page took more than 20 seconds to capture. Try “Readable” or “Selection”.'
-      }
-    }
-    return {
-      ok: false,
-      code: 'E_COLLECT_FAILED',
-      message: 'The page did not respond to the capture request.'
-    }
-  }
-
-  if (settings.imagePolicy !== 'skip' && collected.images.length > 0) {
-    collected.images = await fetchImages(collected.images)
-  }
-
-  if (collected.blocks.length === 0 && !collected.text.trim()) {
-    return {
-      ok: false,
-      code: 'E_EMPTY_CONTENT',
-      message:
-        request.mode === 'selection'
-          ? 'Nothing is selected on this page.'
-          : 'This page has no readable text.'
-    }
-  }
-
-  const format = request.format ?? settings.defaultFormat
-  let htmlSnapshot = collected.html
-  if (format === 'html' && request.mode === 'full' && htmlSnapshot) {
-    htmlSnapshot = await inlineCssAssets(inlineHtmlImages(htmlSnapshot, collected.images))
-  }
-  const options = {
-    mode: request.mode,
-    imagePolicy: settings.imagePolicy,
-    scheme: settings.targetScheme,
-    format,
-    ...(format === 'html' && request.mode === 'full' && htmlSnapshot ? { htmlSnapshot } : {}),
-    generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent }
-  }
-
-  let built: BuildResult = await buildClip(collected, options)
-
-  const canUseFileChannel = hasDownloadsApi() && !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
-
-  // Embedded images rarely fit in a 24k-character URL. When the target build
-  // can read a file, save the package and pass its path; MAS cannot, so it
-  // degrades to linked images instead of pretending the images were included.
-  if (!built.inlineUrl && !canUseFileChannel) {
-    built = await buildClip(collected, { ...options, imagePolicy: 'link' })
-  }
-
-  const imagePermissionGranted =
-    settings.imagePolicy === 'skip' ? true : await chrome.permissions.contains({ origins: ['<all_urls>'] })
-
-  const base = {
-    ok: true as const,
-    mode: request.mode,
-    title: built.document.source.title,
-    clipId: built.document.clipId,
-    markdown: built.markdown,
-    format: built.format,
-    content: built.content,
-    bytes: built.content.length,
-    assetCount: built.stats.assetCount,
-    embeddedAssets: built.stats.embedded,
-    linkedAssets: built.stats.linked,
-    failedAssets: built.stats.failed,
-    skippedAssets: built.stats.skipped,
-    canRequestImageAccess: built.stats.failed > 0 && !imagePermissionGranted
-  }
-
-  if (built.inlineUrl) {
-    rememberBuild(built)
-    await rememberHistory(built, 'inline')
-    return {
-      ...base,
-      url: built.inlineUrl,
-      channel: 'inline',
-      urlLength: built.inlineUrl.length
-    }
-  }
-
-  if (canUseFileChannel) {
     try {
-      const saved = await savePackage(built.payload, base.title, base.clipId, settings)
-      const url = buildFileUrl(settings.targetScheme, saved.path, base.clipId)
-      rememberBuild(built)
-      await rememberHistory(built, 'file')
-      return {
-        ...base,
-        url,
-        channel: 'file',
-        urlLength: url.length,
-        savedFilename: saved.filename
-      }
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] })
     } catch (error) {
       return {
         ok: false,
-        code: error instanceof ProtocolError ? error.code : 'E_PACKAGE_FAILED',
-        message: error instanceof Error ? error.message : 'Could not save the clip package'
+        code: 'E_INJECTION_FAILED',
+        message:
+          'This page does not allow content scripts (browser pages and the Web Store do not). ' +
+          `[${error instanceof Error ? error.message : 'unknown error'}]`
       }
     }
-  }
+    throwIfAborted(signal)
 
-  rememberBuild(built)
-  await rememberHistory(built, 'wake')
-  return {
-    ...base,
-    url: buildWakeUrl(settings.targetScheme),
-    channel: 'wake',
-    urlLength: 0,
-    fallbackReason:
-      'This clip is too large for an import link and the Mac App Store build cannot read downloads. Use “Save file” instead.'
+    let collected: CollectedPage
+    try {
+      collected = await abortable(
+        withTimeout(
+          chrome.tabs.sendMessage(tab.id, {
+            type: 'GRAPHOCK_COLLECT',
+            mode: request.mode,
+            imagePolicy: settings.imagePolicy
+          }) as Promise<CollectedPage>,
+          20_000,
+          'The page took too long to capture.'
+        ),
+        signal
+      )
+    } catch (error) {
+      if (error instanceof ProtocolError) throw error
+      if (error instanceof TimeoutError) {
+        return {
+          ok: false,
+          code: error.code,
+          message: 'This page took more than 20 seconds to capture. Try “Readable” or “Selection”.'
+        }
+      }
+      return {
+        ok: false,
+        code: 'E_COLLECT_FAILED',
+        message: 'The page did not respond to the capture request.'
+      }
+    }
+
+    throwIfAborted(signal)
+
+    if (collected.tooLarge) {
+      return {
+        ok: false,
+        code: 'E_TOO_LARGE',
+        message: 'This page is too large to capture safely. Try “Selection” or a simpler page.'
+      }
+    }
+
+    if (collected.blocks.length === 0 && !collected.text.trim()) {
+      return {
+        ok: false,
+        code: 'E_EMPTY_CONTENT',
+        message:
+          request.mode === 'selection'
+            ? 'Nothing is selected on this page.'
+            : 'This page has no readable text.'
+      }
+    }
+
+    const format = request.format ?? settings.defaultFormat
+    const rawHtml = collected.html
+    const canUseFile = canUseFileChannel(settings)
+
+    // Only the embed policy downloads image bytes. Link and text-only modes
+    // never fetch images, so a policy change cannot leak network requests.
+    if (settings.imagePolicy === 'embed' && collected.images.length > 0) {
+      collected.images = await fetchImages(collected.images, { signal })
+    }
+    throwIfAborted(signal)
+
+    const snapshotFor = async (policy: Settings['imagePolicy']): Promise<string | undefined> => {
+      if (format !== 'html' || request.mode !== 'full' || !rawHtml) return undefined
+      return prepareHtmlSnapshot(rawHtml, policy, collected.images, { signal })
+    }
+
+    let policy = settings.imagePolicy
+    let htmlSnapshot = await snapshotFor(policy)
+    throwIfAborted(signal)
+
+    const baseOptions = {
+      mode: request.mode,
+      scheme: settings.targetScheme,
+      format,
+      generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent }
+    }
+
+    let built = await buildClip(collected, {
+      ...baseOptions,
+      imagePolicy: policy,
+      ...(htmlSnapshot ? { htmlSnapshot } : {})
+    })
+    throwIfAborted(signal)
+
+    // Embedded images rarely fit in a 24k-character URL. When the target build
+    // cannot read files, degrade to links and regenerate the HTML snapshot so
+    // the delivered artefact matches the policy instead of reusing embed bytes.
+    if (!built.inlineUrl && !canUseFile) {
+      policy = 'link'
+      htmlSnapshot = await snapshotFor('link')
+      built = await buildClip(collected, {
+        ...baseOptions,
+        imagePolicy: 'link',
+        ...(htmlSnapshot ? { htmlSnapshot } : {})
+      })
+      throwIfAborted(signal)
+    }
+
+    const imagePermissionGranted =
+      settings.imagePolicy === 'skip'
+        ? true
+        : await chrome.permissions.contains({ origins: ['<all_urls>'] })
+
+    rememberPrepared({
+      build: built,
+      settings,
+      canUseFileChannel: canUseFile,
+      ...(built.inlineUrl ? { inlineUrl: built.inlineUrl } : {}),
+      createdAt: Date.now()
+    })
+
+    return {
+      ok: true,
+      requestId,
+      ...(built.inlineUrl ? { url: built.inlineUrl } : {}),
+      channel: built.inlineUrl ? 'inline' : canUseFile ? 'file-ready' : 'wake',
+      mode: request.mode,
+      title: built.document.source.title,
+      clipId: built.document.clipId,
+      markdown: built.markdown,
+      format: built.format,
+      content: built.content,
+      bytes: built.content.length,
+      ...(built.inlineUrl ? { urlLength: built.inlineUrl.length } : {}),
+      assetCount: built.stats.assetCount,
+      embeddedAssets: built.stats.embedded,
+      linkedAssets: built.stats.linked,
+      failedAssets: built.stats.failed,
+      skippedAssets: built.stats.skipped,
+      canRequestImageAccess: built.stats.failed > 0 && !imagePermissionGranted,
+      canSaveZip: capabilities(settings).zip && built.stats.embedded > 0 && built.format !== 'html',
+      ...(!built.inlineUrl && !canUseFile
+        ? {
+            fallbackReason:
+              'This clip is too large for an import link and this build cannot read downloads. Images were linked; use “Save file” or grant image access.'
+          }
+        : {})
+    }
+  } catch (error) {
+    if (error instanceof ProtocolError) {
+      return { ok: false, code: error.code, message: error.message }
+    }
+    return {
+      ok: false,
+      code: 'E_INTERNAL',
+      message: error instanceof Error ? error.message : 'Unexpected capture error'
+    }
+  } finally {
+    clearTimeout(deadline)
+    activeCaptures.delete(requestId)
   }
 }
 
-async function openInApp(request: OpenRequest): Promise<void> {
+async function deliver(request: DeliverRequest): Promise<DeliverResult> {
+  let record: Prepared
   try {
-    await chrome.tabs.create({ url: request.url })
-  } catch {
-    // The browser may refuse an external protocol without a user gesture.
+    record = requirePrepared(request.clipId)
+  } catch (error) {
+    return {
+      ok: false,
+      code: error instanceof ProtocolError ? error.code : 'E_BUILD_EXPIRED',
+      message: error instanceof Error ? error.message : 'Clip preview expired'
+    }
+  }
+  if (record.delivered) return record.delivered
+
+  const build = record.build
+  try {
+    if (record.inlineUrl) {
+      await rememberHistory(build, 'inline')
+      record.delivered = { ok: true, url: record.inlineUrl, channel: 'inline' }
+      return record.delivered
+    }
+
+    if (record.canUseFileChannel) {
+      const saved = await savePackage(
+        build.payload,
+        build.document.source.title,
+        build.document.clipId,
+        record.settings
+      )
+      const url = buildFileUrl(record.settings.targetScheme, saved.path, build.document.clipId)
+      await rememberHistory(build, 'file')
+      record.delivered = {
+        ok: true,
+        url,
+        channel: 'file',
+        savedFilename: saved.filename,
+        savedPath: saved.path
+      }
+      return record.delivered
+    }
+
+    const url = buildWakeUrl(record.settings.targetScheme)
+    await rememberHistory(build, 'wake')
+    record.delivered = {
+      ok: true,
+      url,
+      channel: 'wake',
+      fallbackReason:
+        'Graphock opened. Choose “Import file” in the app to bring this page in.'
+    }
+    return record.delivered
+  } catch (error) {
+    return {
+      ok: false,
+      code: error instanceof ProtocolError ? error.code : 'E_DELIVERY_FAILED',
+      message: error instanceof Error ? error.message : 'Could not deliver the clip'
+    }
   }
 }
 
@@ -367,7 +537,8 @@ const FORMAT_META: Record<SaveRequest['format'], { extension: string; mime: stri
   markdown: { extension: 'md', mime: 'text/markdown' },
   html: { extension: 'html', mime: 'text/html' },
   json: { extension: 'json', mime: 'application/json' },
-  yaml: { extension: 'yaml', mime: 'application/yaml' }
+  yaml: { extension: 'yaml', mime: 'application/yaml' },
+  txt: { extension: 'txt', mime: 'text/plain' }
 }
 
 async function downloadBytes(
@@ -375,12 +546,12 @@ async function downloadBytes(
   filename: string,
   mime: string
 ): Promise<{ id: number }> {
-  let base64 = ''
+  let binary = ''
   const chunk = 0x8000
   for (let index = 0; index < bytes.length; index += chunk) {
-    base64 += String.fromCharCode(...bytes.subarray(index, index + chunk))
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk))
   }
-  const encoded = btoa(base64)
+  const encoded = btoa(binary)
   if (!hasDownloadsApi() || !hasOffscreenApi()) {
     throw new ProtocolError(
       'E_CHANNEL_UNAVAILABLE',
@@ -407,10 +578,20 @@ async function downloadBytes(
 async function saveContent(request: SaveRequest): Promise<{ ok: true; filename: string }> {
   const settings = await getSettings()
   const subdirectory = downloadSubdirectory(settings)
-  const build = lastBuilds.get(request.clipId)
+  const build = prepared.get(request.clipId)
 
-  if (request.withAssets && build && build.payload.assets.length > 0 && request.format !== 'html') {
-    const zip = buildClipZip(build)
+  if (request.withAssets) {
+    if (!build || Date.now() - build.createdAt > PREPARED_TTL_MS) {
+      prepared.delete(request.clipId)
+      throw new ProtocolError(
+        'E_BUILD_EXPIRED',
+        'The clip preview has expired. Capture the page again to save a zip with assets.'
+      )
+    }
+    if (build.build.payload.assets.length === 0) {
+      throw new ProtocolError('E_NO_ASSETS', 'This clip has no embedded assets to zip.')
+    }
+    const zip = buildClipZip(build.build)
     const filename = buildFilename({
       date: new Date(),
       title: request.title,
@@ -454,11 +635,7 @@ const MENU_SELECTION = 'graphock-clip-selection'
 
 function createMenus(): void {
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: MENU_PAGE,
-      title: 'Clip page to Graphock',
-      contexts: ['page']
-    })
+    chrome.contextMenus.create({ id: MENU_PAGE, title: 'Clip page to Graphock', contexts: ['page'] })
     chrome.contextMenus.create({
       id: MENU_SELECTION,
       title: 'Clip selection to Graphock',
@@ -471,7 +648,8 @@ chrome.runtime.onInstalled.addListener(createMenus)
 chrome.runtime.onStartup.addListener(createMenus)
 
 async function quickClip(mode: CaptureRequest['mode']): Promise<void> {
-  const result = await capture({ type: 'GRAPHOCK_CAPTURE', mode })
+  const requestId = crypto.randomUUID()
+  const result = await capture({ type: 'GRAPHOCK_CAPTURE', mode, requestId })
   if (!result.ok) {
     await chrome.action.setBadgeBackgroundColor({ color: '#b42318' })
     await chrome.action.setBadgeText({ text: '!' })
@@ -480,9 +658,15 @@ async function quickClip(mode: CaptureRequest['mode']): Promise<void> {
     }, 5_000)
     return
   }
+  const delivered = await deliver({ type: 'GRAPHOCK_DELIVER', clipId: result.clipId })
+  if (!delivered.ok) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#b42318' })
+    await chrome.action.setBadgeText({ text: '!' })
+    return
+  }
   await chrome.action.setBadgeText({ text: '' })
   try {
-    await chrome.tabs.create({ url: result.url })
+    await chrome.tabs.create({ url: delivered.url })
   } catch {
     // The browser may block the external protocol; the popup offers a copy path.
   }
@@ -501,17 +685,21 @@ chrome.commands.onCommand.addListener((command) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string } | undefined)?.type
   if (type === 'GRAPHOCK_CAPTURE') {
-    capture(message as CaptureRequest).then(sendResponse, (error: unknown) =>
-      sendResponse({
-        ok: false,
-        code: error instanceof ProtocolError ? error.code : 'E_INTERNAL',
-        message: error instanceof Error ? error.message : 'Unexpected capture error'
-      })
-    )
+    capture(message as CaptureRequest).then(sendResponse)
     return true
   }
-  if (type === 'GRAPHOCK_OPEN') {
-    void openInApp(message as OpenRequest).then(() => sendResponse({ ok: true }))
+  if (type === 'GRAPHOCK_CANCEL') {
+    const request = message as CancelRequest
+    activeCaptures.get(request.requestId)?.abort('cancelled')
+    sendResponse({ ok: true })
+    return true
+  }
+  if (type === 'GRAPHOCK_DELIVER') {
+    deliver(message as DeliverRequest).then(sendResponse)
+    return true
+  }
+  if (type === 'GRAPHOCK_CAPABILITIES') {
+    void getSettings().then((settings) => sendResponse(capabilities(settings)))
     return true
   }
   if (type === 'GRAPHOCK_SAVE') {

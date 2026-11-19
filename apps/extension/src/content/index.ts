@@ -1,11 +1,16 @@
 import { htmlToBlocks } from '@graphock/capture/blocks'
 import { buildPageSnapshot, collectStyles } from './snapshot'
 import { extractMetadata } from '@graphock/capture/metadata'
-import { cloneForExport } from '@graphock/capture/dom'
+import { cloneForExport, measureDom } from '@graphock/capture/dom'
 import { extractReadable } from '@graphock/capture/readable'
 import { sanitizeElement } from '@graphock/capture/sanitize'
 import type { Block } from '@graphock/clip-model'
-import type { CaptureMode, CollectedImage, CollectedPage, CollectMessage } from '../shared/messages'
+import type {
+  CaptureMode,
+  CollectedImage,
+  CollectedPage,
+  CollectMessage
+} from '../shared/messages'
 
 declare global {
   interface Window {
@@ -34,8 +39,22 @@ function selectionRoot(): Element | null {
   return container
 }
 
-async function collect(mode: CaptureMode): Promise<CollectedPage> {
+async function collect(mode: CaptureMode, imagePolicy: 'embed' | 'link' | 'skip'): Promise<CollectedPage> {
   const metadata = extractMetadata(document, location.href)
+  const size = measureDom(document.body ?? document.documentElement)
+  if (mode !== 'selection' && size.tooLarge) {
+    return {
+      source: metadata,
+      blocks: [],
+      images: [] as CollectedImage[],
+      readable: false,
+      tooLarge: true,
+      text: '',
+      selectionText: '',
+      htmlBytes: 0,
+      nodeCount: size.nodes
+    }
+  }
   const readable = mode === 'readable' ? extractReadable(document) : { ok: false, content: null, textLength: 0 }
 
   let root: Element
@@ -73,8 +92,8 @@ async function collect(mode: CaptureMode): Promise<CollectedPage> {
   const fetched = images
 
   let html: string | undefined
-  if (mode === 'full') {
-    const styles = await collectStyles(document)
+  if (mode === 'full' && imagePolicy !== 'skip') {
+    const styles = imagePolicy === 'embed' ? await collectStyles(document) : ''
     html = buildPageSnapshot(document, cleaned, styles, fetched)
   }
 
@@ -108,7 +127,7 @@ if (!window.__graphockContentLoaded) {
   chrome.runtime.onMessage.addListener(
     (message: CollectMessage, _sender, sendResponse: (value: CollectedPage) => void) => {
       if (message?.type !== 'GRAPHOCK_COLLECT') return undefined
-      void collect(message.mode)
+      void collect(message.mode, message.imagePolicy ?? 'embed')
         .then(sendResponse)
         .catch(() =>
           sendResponse({

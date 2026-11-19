@@ -133,6 +133,26 @@ describe('buildClip', () => {
     expect(result.payload.document.format).toBe('html')
   })
 
+  it('keeps two references when different URLs serve identical bytes', async () => {
+    const result = await buildClip(
+      collectedPage([
+        image(),
+        image({ assetId: 'img-2', sourceUrl: 'https://example.com/copy.png', alt: 'Copy' })
+      ]),
+      {
+        mode: 'readable',
+        imagePolicy: 'embed',
+        scheme: 'graphock-direct',
+        format: 'markdown',
+        generator
+      }
+    )
+    expect(result.document.assets).toHaveLength(1)
+    expect(result.document.blocks.filter((block) => block.type === 'image')).toHaveLength(2)
+    expect(result.markdown.match(/!\[Diagram\]\(assets\/a1-/gu)).toHaveLength(1)
+    expect(result.markdown.match(/!\[Second\]\(assets\/a1-/gu)).toHaveLength(1)
+  })
+
   it('builds a deterministic zip with document, manifest and assets', async () => {
     const result = await buildClip(collectedPage([image()]), {
       mode: 'readable',

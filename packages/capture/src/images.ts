@@ -14,6 +14,7 @@ export type FetchImagesOptions = {
   maxTotalBytes?: number
   timeoutMs?: number
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }
 
 const DEFAULTS = {
@@ -39,6 +40,39 @@ function toBase64(bytes: Uint8Array): string {
  * Everything else is reported as `failed` (or `skipped` when over budget) so
  * the UI can tell the user instead of silently dropping content.
  */
+export async function readResponseLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new Error(`Image is ${declared} bytes (limit ${maxBytes})`)
+  }
+  if (!response.body) {
+    const buffer = new Uint8Array(await response.arrayBuffer())
+    if (buffer.byteLength > maxBytes) throw new Error(`Image is ${buffer.byteLength} bytes (limit ${maxBytes})`)
+    return buffer
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      throw new Error(`Image exceeded ${maxBytes} bytes`)
+    }
+    chunks.push(value)
+  }
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return merged
+}
+
 export async function fetchImages(
   images: ImageRef[],
   options: FetchImagesOptions = {}
@@ -55,17 +89,30 @@ export async function fetchImages(
       continue
     }
 
+    if (options.signal?.aborted) {
+      results.push({ ...image, status: 'failed', reason: 'ABORTED' })
+      continue
+    }
+
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), config.timeoutMs)
+    const signal = options.signal
+      ? (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+        ? (AbortSignal as unknown as { any: (signals: AbortSignal[]) => AbortSignal }).any([
+            controller.signal,
+            options.signal
+          ])
+        : controller.signal
+      : controller.signal
     try {
       const response = await fetchImpl(image.sourceUrl, {
         credentials: 'omit',
-        signal: controller.signal
+        signal
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const mimeType = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() ?? ''
       if (!mimeType.startsWith('image/')) throw new Error(`Unsupported content type: ${mimeType || 'unknown'}`)
-      const buffer = new Uint8Array(await response.arrayBuffer())
+      const buffer = await readResponseLimited(response, config.maxImageBytes)
       if (buffer.byteLength > config.maxImageBytes) {
         results.push({ ...image, status: 'skipped', reason: 'IMAGE_TOO_LARGE', mimeType })
         continue
@@ -83,11 +130,12 @@ export async function fetchImages(
         dataBase64: toBase64(buffer)
       })
     } catch (error) {
-      results.push({
-        ...image,
-        status: 'failed',
-        reason: error instanceof Error ? error.message : 'FETCH_FAILED'
-      })
+      const message = error instanceof Error ? error.message : 'FETCH_FAILED'
+      if (/Image (is|exceeded)/u.test(message)) {
+        results.push({ ...image, status: 'skipped', reason: 'IMAGE_TOO_LARGE' })
+      } else {
+        results.push({ ...image, status: 'failed', reason: message })
+      }
     } finally {
       clearTimeout(timer)
     }

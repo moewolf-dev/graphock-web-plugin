@@ -9,6 +9,7 @@ import {
   type Settings
 } from '../shared/messages'
 import { t } from '../shared/strings'
+import { parseSettingsBackup, serializeSettings } from '../shared/settings'
 
 const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
 const history = ref<HistoryEntry[]>([])
@@ -33,7 +34,8 @@ const formats: { value: OutputFormat; label: string }[] = [
   { value: 'markdown', label: t('formatMarkdown') },
   { value: 'html', label: t('formatHtml') },
   { value: 'json', label: t('formatJson') },
-  { value: 'yaml', label: t('formatYaml') }
+  { value: 'yaml', label: t('formatYaml') },
+  { value: 'txt', label: t('formatTxt') }
 ]
 
 const policies: { value: ImagePolicy; label: string }[] = [
@@ -110,11 +112,7 @@ async function revokeImageAccess(): Promise<void> {
 }
 
 function exportSettings(): void {
-  const payload = JSON.stringify(
-    { schema: 'graphock.web-plugin.settings/1', exportedAt: new Date().toISOString(), settings: settings.value },
-    null,
-    2
-  )
+  const payload = serializeSettings(settings.value)
   const blob = new Blob([payload], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -130,9 +128,7 @@ async function importSettings(event: Event): Promise<void> {
   const file = input.files?.[0]
   if (!file) return
   try {
-    const parsed = JSON.parse(await file.text()) as { settings?: Partial<Settings> }
-    if (!parsed.settings) throw new Error('Missing "settings" object')
-    settings.value = { ...DEFAULT_SETTINGS, ...parsed.settings }
+    settings.value = parseSettingsBackup(await file.text())
     await save()
   } catch (error_) {
     importError.value = error_ instanceof Error ? error_.message : 'Could not read the file'

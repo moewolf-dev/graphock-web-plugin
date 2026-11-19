@@ -9,6 +9,7 @@ import {
   parseImportUrl,
   validatePayload
 } from '@graphock/handoff'
+import { computeHandoffChecksum } from '@graphock/clip-model'
 import { samplePayload } from '../helpers/clip.js'
 
 describe('inline payload encoding', () => {
@@ -105,6 +106,32 @@ describe('payload validation', () => {
     await expect(
       validatePayload({ ...payload, protocolVersion: 2 })
     ).rejects.toThrowError(/schema/i)
+  })
+
+  it('applies the inline asset total only to the inline channel', async () => {
+    const payload = await samplePayload()
+    const bytes = Buffer.alloc(9 * 1024 * 1024, 7)
+    const data = bytes.toString('base64')
+    const { createHash } = await import('node:crypto')
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    const withAsset = {
+      ...payload,
+      assets: [
+        {
+          path: 'assets/a1-large.bin',
+          mimeType: 'application/octet-stream',
+          sha256,
+          data
+        }
+      ]
+    }
+    withAsset.checksum = await computeHandoffChecksum({
+      clipId: withAsset.clipId,
+      document: withAsset.document,
+      assets: withAsset.assets
+    })
+    await expect(validatePayload(withAsset)).rejects.toMatchObject({ code: 'E_LIMIT_EXCEEDED' })
+    await expect(validatePayload(withAsset, { channel: 'file' })).resolves.toBeTruthy()
   })
 
   it('rejects asset paths with traversal', async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -80,6 +80,36 @@ describe('inline channel', () => {
     await expect(
       receiveImportUrl(buildInlineUrl('graphock-direct', withAsset), { outDir: root })
     ).rejects.toMatchObject({ code: 'E_CHECKSUM_MISMATCH' })
+  })
+
+  it('leaves no partial directory when an asset fails, and retries cleanly', async () => {
+    const payload = await samplePayload()
+    const bad = {
+      ...payload,
+      assets: [
+        {
+          path: 'assets/a1-deadbeef.bin',
+          mimeType: 'application/octet-stream',
+          sha256: 'a'.repeat(64),
+          data: Buffer.from('wrong').toString('base64')
+        }
+      ]
+    }
+    bad.checksum = await computeHandoffChecksum({
+      clipId: bad.clipId,
+      document: bad.document,
+      assets: bad.assets
+    })
+    await expect(receiveImportUrl(buildInlineUrl('graphock-direct', bad), { outDir: root })).rejects.toMatchObject({
+      code: 'E_CHECKSUM_MISMATCH'
+    })
+    expect(await readdir(root)).toEqual([])
+
+    const fixed = await samplePayload()
+    await expect(
+      receiveImportUrl(buildInlineUrl('graphock-direct', fixed), { outDir: root })
+    ).resolves.toMatchObject({ clipId: fixed.clipId })
+    expect(await readdir(root)).toEqual([fixed.clipId])
   })
 
   it('writes verified assets next to the document', async () => {

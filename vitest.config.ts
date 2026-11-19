@@ -30,10 +30,46 @@ export default defineConfig({
       include: ['packages/*/src/**/*.ts', 'apps/extension/src/background/build.ts'],
       exclude: ['**/index.ts', '**/cli.ts', '**/*.d.ts'],
       thresholds: {
-        lines: 78,
-        statements: 78,
-        functions: 80,
-        branches: 65
+        lines: 85,
+        statements: 85,
+        functions: 90,
+        branches: 70,
+        'packages/handoff/src/**/*.ts': {
+          lines: 80,
+          statements: 80,
+          functions: 85,
+          branches: 75
+        },
+        'packages/converters/src/**/*.ts': {
+          lines: 90,
+          statements: 90,
+          functions: 95,
+          branches: 75
+        },
+        'packages/clip-model/src/**/*.ts': {
+          lines: 95,
+          statements: 95,
+          functions: 95,
+          branches: 85
+        },
+        'packages/capture/src/**/*.ts': {
+          lines: 85,
+          statements: 85,
+          functions: 95,
+          branches: 65
+        },
+        'packages/protocol-receiver/src/**/*.ts': {
+          lines: 75,
+          statements: 75,
+          functions: 95,
+          branches: 60
+        },
+        'apps/extension/src/background/build.ts': {
+          lines: 75,
+          statements: 75,
+          functions: 70,
+          branches: 60
+        }
       }
     }
   }

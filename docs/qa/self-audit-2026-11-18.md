@@ -40,7 +40,7 @@ what can only be finished by a human or with external credentials.
 pnpm install
 pnpm lint
 pnpm typecheck
-pnpm test:coverage     # 96 tests, ~89% lines
+pnpm test:coverage     # 119 tests, ~90% lines
 pnpm test:e2e          # Chrome for Testing, capture + save + file channel + axe
 pnpm lint:licenses     # production tree only
 pnpm build && pnpm package:chrome
@@ -63,12 +63,20 @@ conversation resolution, no force push/delete).
   channel is intentionally unavailable.
 - **Offscreen download helper** exists because Chrome interrupts `data:` URL downloads from MV3
   service workers; it adds the `offscreen` permission (justified in the store draft).
+- **Capture and delivery are split.** Capture is a preview with no side effects; cancelling it
+  aborts network work and writes nothing. Delivery (open/save) is explicit and history is only
+  written then. Zip saves require the preview to still exist (10-minute TTL).
+- **Channel limits are enforced by both ends.** Inline assets are capped at 8 MB; the file channel
+  allows up to 200 MB with 20 MB per asset. The sender validates with the receiver's rules before
+  writing a package.
 - **Cross-origin images** require the optional `<all_urls>` permission; without it images are
   linked and the popup offers a one-click grant.
 - **Reference snapshots** (≈20 MB) are pinned source for MIT/Apache projects and notes only for
   AGPL projects. They are excluded from builds and licence checks by design.
 - **Local save size cap** is 2 MB for text files and 5 MB on Safari’s page fallback; larger
   content should use “Open in Graphock” or a smaller format. This is a deliberate MVP limit.
+- **DOM and response guards** run before cloning/allocating (100k nodes / 600 depth; streamed
+  image and CSS reads), so a hostile page fails with `E_TOO_LARGE` instead of exhausting memory.
 
 ## 5. What only a human / external party can finish
 

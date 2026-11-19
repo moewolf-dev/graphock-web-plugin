@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { cloneForExport, countOpenShadowRoots } from '@graphock/capture/dom'
+import { cloneForExport, countOpenShadowRoots, measureDom } from '@graphock/capture/dom'
 
 function dom(html: string): Document {
   return new DOMParser().parseFromString(html, 'text/html')
@@ -37,6 +37,15 @@ describe('cloneForExport', () => {
     expect(clone.querySelector('script')).toBeNull()
     expect(clone.querySelector('[onclick]')).not.toBeNull() // sanitizeElement removes handlers next
     expect(clone.textContent).toContain('x')
+  })
+
+  it('measures size and reports oversized DOM before cloning', () => {
+    const document = dom('<body><div><p>x</p><p>y</p></div></body>')
+    expect(measureDom(document.body, { maxNodes: 10 })).toMatchObject({ tooLarge: false })
+    const big = '<div>'.repeat(20) + 'x' + '</div>'.repeat(20)
+    const deep = dom(`<body>${big}</body>`)
+    expect(measureDom(deep.body, { maxDepth: 5 }).tooLarge).toBe(true)
+    expect(measureDom(deep.body, { maxNodes: 3 }).tooLarge).toBe(true)
   })
 
   it('keeps nested shadow roots', () => {

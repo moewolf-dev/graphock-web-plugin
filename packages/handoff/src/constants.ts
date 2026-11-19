@@ -28,6 +28,9 @@ export const MAX_DOCUMENT_BYTES = 64 * 1024 * 1024
 /** Default maximum file size the receiver accepts through the file channel. */
 export const MAX_FILE_BYTES = 200 * 1024 * 1024
 
+/** Maximum serialized payload the sender writes for the file channel. */
+export const MAX_FILE_PAYLOAD_BYTES = 64 * 1024 * 1024
+
 /** Schemes owned by the desktop app editions. */
 export const KNOWN_SCHEMES = ['graphock', 'graphock-direct', 'graphock-dev'] as const
 export type KnownScheme = (typeof KNOWN_SCHEMES)[number]
