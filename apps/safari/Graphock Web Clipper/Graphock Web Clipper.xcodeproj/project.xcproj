@@ -86,15 +86,15 @@
       "kind": "group",
       "name": "Products",
       "children": [
-        { "path": "<PRODUCTS>/Graphock Web Clipper.app", "id": "D2E765AD30AE969900519253", "type": "wrapper.application", "index": false },
-        { "path": "<PRODUCTS>/Graphock Web Clipper Extension.appex", "id": "D2E765C830AE969A00519253", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "Graphock Web Clipper/copy/Embed Foundation Extensions", "header-preservation": "remove-on-copy" } ] },
+        { "path": "<PRODUCTS>/Graphock Web Clipper.app", "id": "D2F4FF5630AECE1B007FB454", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/Graphock Web Clipper Extension.appex", "id": "D2F4FF7130AECE1D007FB454", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "Graphock Web Clipper/copy/Embed Foundation Extensions", "header-preservation": "remove-on-copy" } ] },
       ],
     },
   ],
   "targets": [
     {
       "name": "Graphock Web Clipper",
-      "id": "D2E765AC30AE969900519253",
+      "id": "D2F4FF5530AECE1B007FB454",
       "product": "Products/Graphock Web Clipper.app",
       "product-type": "application",
       "dependencies": [
@@ -150,7 +150,7 @@
       },
     }, {
       "name": "Graphock Web Clipper Extension",
-      "id": "D2E765C730AE969A00519253",
+      "id": "D2F4FF7030AECE1D007FB454",
       "product": "Products/Graphock Web Clipper Extension.appex",
       "product-type": "app-extension",
       "build-phases": [

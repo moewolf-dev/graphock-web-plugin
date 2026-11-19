@@ -30,7 +30,8 @@
     "qa:update": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --update-snapshots",
     "qa:nightly": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @nightly",
     "qa:linux": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep-invert @visual",
-    "qa:visual": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @visual"
+    "qa:visual": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @visual",
+    "release:safari:local": "node tooling/package/local-safari-release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

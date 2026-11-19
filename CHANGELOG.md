@@ -39,6 +39,8 @@ All notable changes are documented here. This project follows [Semantic Versioni
 - Release hardening: Chrome-only tag workflow, manual Safari archive with an Xcode runner
   guard, Safari build validation in CI, Linux functional e2e as the required gate, filtered
   failure artifacts with extension logs, stronger cancel/URL assertions, scheduled nightly.
+- Safari native packaging is local-only (`pnpm release:safari:local`); the remote Safari archive
+  workflow was removed.
 - Protocol v1 spec (`docs/protocol/CUSTOM_PROTOCOL_IMPORT.md`) with inline/file/wake channels.
 - `@graphock/clip-model`: document model, zod schema, canonical JSON, checksums.
 - `@graphock/handoff`: URL builder/parser, DEFLATE + base64url encoding, limits, error codes.

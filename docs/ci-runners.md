@@ -16,7 +16,6 @@ Set repository variables (Settings → Variables) without editing workflows:
 | --- | --- | --- |
 | `CI_LINUX_RUNNER` | `sengi-basic-2-ubuntu-2404` | Forces one Linux label for every Linux job |
 | `CI_MACOS_RUNNER_JSON` | `["self-hosted","macOS","ARM64","moe-ci-macos"]` | JSON array of labels for macOS jobs |
-| `CI_SAFARI_RUNNER_JSON` | `["self-hosted","macOS","ARM64","xcode"]` | Required to run `release-safari.yml`; must have Xcode |
 
 If a provider is unavailable, set `CI_LINUX_RUNNER` to the other one (`avrea-ubuntu-latest`).
 
@@ -39,13 +38,17 @@ us). Do not remove the fork guard: self-hosted runners must never execute untrus
 | `dco.yml` | free Linux | sign-off check on PRs |
 | `e2e.yml` | free Linux + free macOS | Linux functional suite (required, forks included) + macOS visual suite (trusted branches) |
 | `release.yml` | free Linux | Chrome zip on tags/manual (no Safari) |
-| `release-safari.yml` | dedicated macOS with Xcode | manual unsigned Safari archive; requires `CI_SAFARI_RUNNER_JSON` |
 | `nightly.yml` | free Linux | daily `@nightly` stability/large-page cases |
 
 ## What stays manual
 
-Signing, notarization, TestFlight and store upload still require credentials and human review;
-the workflows only produce artifacts.
+All Xcode-dependent Safari work is **local-only**:
+
+- `pnpm release:safari:local` on the release Mac (Xcode installed)
+- signing, notarization, TestFlight and store upload
+
+Remote CI only builds the Safari JS/manifest (`pnpm build:safari` + `check-safari-build.mjs`).
+See `docs/release-safari-local.md`.
 
 ## Verified runs
 
