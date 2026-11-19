@@ -18,6 +18,17 @@ pnpm build
 3. 点击 **Load unpacked / 加载已解压的扩展程序**，选择 `apps/extension/dist/chrome`。
 4. 修改代码后重新执行 `pnpm build`，在扩展卡片上点 **Reload / 重新加载**。
 
+## 自动化 QA
+
+```bash
+pnpm qa          # 构建 + Playwright 用户流程（真实点击/键盘/下载）
+pnpm qa:ui       # 调试模式，可单步重放
+pnpm qa:update   # 更新视觉基线（在确认 UI 变更后）
+pnpm qa:nightly  # 20 次连续剪藏 + 大页面
+```
+
+失败产物在 `test-results/`（截图、trace、扩展日志），HTML 报告在 `playwright-report/`。
+
 验证清单：
 
 - 工具栏出现图标，点击后弹窗显示当前页标题。

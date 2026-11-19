@@ -21,11 +21,12 @@ const notice = ref('')
 const copied = ref(false)
 let requestSeq = 0
 let currentRequestId = ''
+const appliedSeq = ref(0)
 
 const modes: { value: CaptureMode; label: string; hint: string }[] = [
-  { value: 'readable', label: t('readable'), hint: 'Main article text' },
-  { value: 'full', label: t('fullPage'), hint: 'All visible text' },
-  { value: 'selection', label: t('selection'), hint: 'Only what is selected' }
+  { value: 'readable', label: t('readable'), hint: t('modeHintReadable') },
+  { value: 'full', label: t('fullPage'), hint: t('modeHintFull') },
+  { value: 'selection', label: t('selection'), hint: t('modeHintSelection') }
 ]
 
 const formats: { value: OutputFormat; label: string }[] = [
@@ -37,9 +38,9 @@ const formats: { value: OutputFormat; label: string }[] = [
 ]
 
 const policies: { value: ImagePolicy; label: string; hint: string }[] = [
-  { value: 'embed', label: t('embed'), hint: 'Embed image files (larger clips use a package file)' },
-  { value: 'link', label: t('links'), hint: 'Keep image URLs only' },
-  { value: 'skip', label: t('textOnly'), hint: 'Drop images' }
+  { value: 'embed', label: t('embed'), hint: t('policyHintEmbed') },
+  { value: 'link', label: t('links'), hint: t('policyHintLink') },
+  { value: 'skip', label: t('textOnly'), hint: t('policyHintSkip') }
 ]
 
 const errorText = computed(() => {
@@ -54,17 +55,19 @@ const metaText = computed(() => {
   const kb = Math.max(1, Math.round(value.bytes / 1024))
   const images =
     value.assetCount > 0 || value.failedAssets > 0
-      ? ` · ${value.embeddedAssets} embedded, ${value.linkedAssets} linked` +
-        `${value.failedAssets > 0 ? `, ${value.failedAssets} failed` : ''}` +
-        `${value.skippedAssets > 0 ? `, ${value.skippedAssets} skipped` : ''}`
+      ? t('imagesSummary')
+          .replace('{embedded}', String(value.embeddedAssets))
+          .replace('{linked}', String(value.linkedAssets)) +
+        (value.failedAssets > 0 ? t('imagesFailedSuffix').replace('{failed}', String(value.failedAssets)) : '') +
+        (value.skippedAssets > 0 ? t('imagesSkippedSuffix').replace('{skipped}', String(value.skippedAssets)) : '')
       : ''
   if (value.channel === 'inline') {
-    return `${kb} KB · link ${value.urlLength.toLocaleString()} characters${images}`
+    return `${t('metaInline').replace('{kb}', String(kb)).replace('{chars}', (value.urlLength ?? 0).toLocaleString())}${images}`
   }
   if (value.channel === 'file-ready') {
-    return `${kb} KB · package is written when you open Graphock${images}`
+    return `${t('metaFileReady').replace('{kb}', String(kb))}${images}`
   }
-  return `${kb} KB · saved as file, open Graphock manually${images}`
+  return `${t('metaWake').replace('{kb}', String(kb))}${images}`
 })
 
 async function loadSettings(): Promise<void> {
@@ -78,6 +81,7 @@ async function capture(): Promise<void> {
   const seq = ++requestSeq
   currentRequestId = crypto.randomUUID()
   loading.value = true
+  result.value = null
   notice.value = ''
   copied.value = false
   try {
@@ -89,8 +93,10 @@ async function capture(): Promise<void> {
     })) as CaptureResult
     if (seq !== requestSeq) return
     result.value = response
+    appliedSeq.value = seq
   } catch (error) {
     if (seq !== requestSeq) return
+    appliedSeq.value = seq
     result.value = {
       ok: false,
       code: 'E_EXTENSION',
@@ -129,7 +135,7 @@ function setPolicy(next: ImagePolicy): void {
 
 async function copyLink(): Promise<void> {
   const value = result.value
-  if (!value?.ok || !value.url) return
+  if (loading.value || !value?.ok || !value.url) return
   await navigator.clipboard.writeText(value.url)
   copied.value = true
   notice.value = t('copied')
@@ -161,15 +167,13 @@ async function copyDiagnostics(): Promise<void> {
 
 async function requestImageAccess(): Promise<void> {
   const granted = await chrome.permissions.request({ origins: ['<all_urls>'] })
-  notice.value = granted
-    ? 'Image access granted. Capturing again…'
-    : 'Image access was not granted; images stay as links.'
+  notice.value = granted ? t('imageAccessGranted') : t('imageAccessDenied')
   if (granted) await capture()
 }
 
 async function openApp(): Promise<void> {
   const value = result.value
-  if (!value?.ok) return
+  if (loading.value || !value?.ok) return
   busy.value = true
   notice.value = ''
   try {
@@ -206,7 +210,7 @@ const saveNeedsZip = computed(() => {
 
 async function saveFile(): Promise<void> {
   const value = result.value
-  if (!value?.ok) return
+  if (loading.value || !value?.ok) return
   busy.value = true
   notice.value = ''
   try {
@@ -240,33 +244,52 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="clip">
+  <main class="clip" :data-loading="loading" :data-applied-seq="appliedSeq">
     <header class="clip__header">
       <div class="clip__brand">
         <span class="clip__dot" aria-hidden="true"></span>
         <span>Graphock</span>
       </div>
-      <button class="clip__icon-button" type="button" title="Options" @click="openOptions">
-        ⚙
-      </button>
+      <div class="clip__header-actions">
+        <button
+          class="clip__icon-button"
+          type="button"
+          :title="t('refresh')"
+          :aria-label="t('refresh')"
+          data-testid="refresh"
+          @click="capture"
+        >
+          ⟳
+        </button>
+        <button
+          class="clip__icon-button"
+          type="button"
+          :title="t('settings')"
+          :aria-label="t('settings')"
+          data-testid="open-settings"
+          @click="openOptions"
+        >
+          ⚙
+        </button>
+      </div>
     </header>
 
-    <section v-if="result?.ok" class="clip__page">
-      <p class="clip__eyebrow">{{ t('currentPage') }}</p>
-      <h1 class="clip__title" :title="result.title">{{ result.title }}</h1>
-      <p class="clip__meta">{{ metaText }}</p>
-    </section>
-
-    <section v-else-if="loading" class="clip__page clip__page--loading">
+    <section v-if="loading" class="clip__page clip__page--loading">
       <p class="clip__eyebrow">{{ t('readingPage') }}</p>
       <div class="clip__skeleton"></div>
-      <button class="clip__link" type="button" @click="cancelCapture">{{ t('cancel') }}</button>
+      <button class="clip__link" type="button" data-testid="cancel" @click="cancelCapture">{{ t('cancel') }}</button>
+    </section>
+
+    <section v-else-if="result?.ok" class="clip__page">
+      <p class="clip__eyebrow">{{ t('currentPage') }}</p>
+      <h1 class="clip__title" :title="result.title">{{ result.title }}</h1>
+      <p class="clip__meta" data-testid="meta">{{ metaText }}</p>
     </section>
 
     <section v-else class="clip__error" role="alert">
       <p class="clip__eyebrow">{{ t('couldNotClip') }}</p>
       <p class="clip__error-text">{{ errorText }}</p>
-      <button class="clip__link" type="button" @click="copyDiagnostics">
+      <button class="clip__link" type="button" data-testid="copy-diagnostics" @click="copyDiagnostics">
         {{ t('copyDiagnostics') }}
       </button>
     </section>
@@ -281,6 +304,7 @@ onMounted(async () => {
         type="button"
         :title="option.hint"
         :aria-pressed="mode === option.value"
+        :data-testid="`mode-${option.value}`"
         @click="setMode(option.value)"
       >
         {{ option.label }}
@@ -296,6 +320,7 @@ onMounted(async () => {
         :class="{ 'clip__mode--active': format === option.value }"
         type="button"
         :aria-pressed="format === option.value"
+        :data-testid="`format-${option.value}`"
         @click="setFormat(option.value)"
       >
         {{ option.label }}
@@ -312,6 +337,7 @@ onMounted(async () => {
         type="button"
         :title="option.hint"
         :aria-pressed="settings.imagePolicy === option.value"
+        :data-testid="`policy-${option.value}`"
         @click="setPolicy(option.value)"
       >
         {{ option.label }}
@@ -347,19 +373,20 @@ onMounted(async () => {
     </button>
 
     <div class="clip__actions">
-      <button class="clip__button clip__button--primary" type="button" :disabled="!result?.ok || busy" @click="saveFile">
+      <button class="clip__button clip__button--primary" type="button" data-testid="save" :disabled="loading || !result?.ok || busy" @click="saveFile">
         {{ saveNeedsZip ? t('saveZip') : t('saveFile') }}
       </button>
       <div class="clip__row">
         <button
           class="clip__button"
           type="button"
-          :disabled="!result?.ok || !result.url"
+          :disabled="loading || !result?.ok || !result.url"
+          data-testid="copy-link"
           @click="copyLink"
         >
           {{ copied ? t('copied') : t('copyImportLink') }}
         </button>
-        <button class="clip__button" type="button" :disabled="!result?.ok || busy" @click="openApp">
+        <button class="clip__button" type="button" data-testid="open-app" :disabled="loading || !result?.ok || busy" @click="openApp">
           {{ t('openInGraphock') }}
         </button>
       </div>
@@ -407,9 +434,14 @@ onMounted(async () => {
   box-sizing: border-box;
 }
 
+html,
+body {
+  max-width: 100%;
+}
+
 body {
   margin: 0;
-  width: 380px;
+  width: min(380px, 100vw);
   background: var(--bg);
   color: var(--text);
   font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -442,6 +474,11 @@ body {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent);
+}
+
+.clip__header-actions {
+  display: flex;
+  gap: 4px;
 }
 
 .clip__icon-button,

@@ -46,6 +46,7 @@ const policies: { value: ImagePolicy; label: string }[] = [
 ]
 
 const storageSummary = ref('')
+const importInput = ref<HTMLInputElement | null>(null)
 const logsText = ref('')
 let logsRaw: LogEntry[] = []
 
@@ -65,7 +66,7 @@ async function loadLogs(): Promise<void> {
     persisted: LogEntry[]
   }
   logsRaw = [...result.entries, ...result.persisted]
-  logsText.value = logsRaw.length === 0 ? 'No logs yet.' : logsRaw.slice(-80).map(formatLog).join('\n')
+  logsText.value = logsRaw.length === 0 ? t('noLogs') : logsRaw.slice(-80).map(formatLog).join('\n')
 }
 
 async function copyLogs(): Promise<void> {
@@ -92,11 +93,11 @@ async function loadDiagnostics(): Promise<void> {
   const bytes = await chrome.storage.local.getBytesInUse(null)
   const imageAccess = await chrome.permissions.contains({ origins: ['<all_urls>'] })
   diagnostics.value = [
-    `version: ${manifest.version}`,
-    `storage: ${(bytes / 1024).toFixed(1)} KB`,
-    `image access (optional): ${imageAccess ? 'granted' : 'not granted'}`,
-    `permissions: ${(manifest.permissions ?? []).join(', ')}`,
-    `ua: ${navigator.userAgent}`
+    `${t('diagVersion')}: ${manifest.version}`,
+    `${t('diagStorage')}: ${(bytes / 1024).toFixed(1)} KB`,
+    `${t('diagImageAccess')}: ${imageAccess ? t('granted') : t('notGranted')}`,
+    `${t('diagPermissions')}: ${(manifest.permissions ?? []).join(', ')}`,
+    `${t('diagUa')}: ${navigator.userAgent}`
   ].join('\n')
   storageSummary.value = `${(bytes / 1024).toFixed(1)} KB used`
 }
@@ -189,10 +190,7 @@ onMounted(load)
           </option>
         </select>
       </label>
-      <p class="hint">
-        The website-download build uses <code>graphock-direct://</code>; the Mac App Store build
-        uses <code>graphock://</code>. You can copy the import link from the popup instead.
-      </p>
+      <p class="hint">{{ t('desktopSchemeHint') }}</p>
     </section>
 
     <section class="card">
@@ -225,10 +223,7 @@ onMounted(load)
         <span>{{ t('downloadSubdirectory') }}</span>
         <input v-model="settings.downloadSubdirectory" type="text" maxlength="120" />
       </label>
-      <p class="hint">
-        Files are saved inside your browser's download directory. Browsers do not allow extensions
-        to write to arbitrary absolute paths.
-      </p>
+      <p class="hint">{{ t('downloadHint') }}</p>
     </section>
 
     <section class="card">
@@ -262,13 +257,13 @@ onMounted(load)
         <button type="button" @click="revokeImageAccess">{{ t('revokeImageAccess') }}</button>
         <button class="danger" type="button" @click="clearAll">{{ t('clearAll') }}</button>
       </div>
-      <p class="hint">{{ storageSummary }} in this browser profile.</p>
+      <p class="hint">{{ t('storageUsage').replace('{size}', storageSummary) }}</p>
       <h3 class="subhead">{{ t('logs') }}</h3>
-      <pre class="diagnostics diagnostics--logs">{{ logsText }}</pre>
+      <pre class="diagnostics diagnostics--logs" data-testid="logs">{{ logsText }}</pre>
       <div class="actions">
-        <button type="button" @click="copyLogs">{{ t('copyLogs') }}</button>
+        <button type="button" data-testid="copy-logs" @click="copyLogs">{{ t('copyLogs') }}</button>
         <button type="button" @click="downloadLogs">{{ t('downloadLogs') }}</button>
-        <button type="button" class="danger" @click="clearLogs">{{ t('clearLogs') }}</button>
+        <button type="button" class="danger" data-testid="clear-logs" @click="clearLogs">{{ t('clearLogs') }}</button>
       </div>
     </section>
 
@@ -276,10 +271,19 @@ onMounted(load)
       <h2>{{ t('backup') }}</h2>
       <div class="actions">
         <button type="button" @click="exportSettings">{{ t('exportSettings') }}</button>
-        <label class="file-button">
+        <button class="file-button" type="button" data-testid="import-settings" @click="importInput?.click()">
           {{ t('importSettings') }}
-          <input type="file" accept="application/json" @change="importSettings" />
-        </label>
+        </button>
+        <input
+          ref="importInput"
+          data-testid="import-input"
+          class="sr-only"
+          type="file"
+          accept="application/json"
+          tabindex="-1"
+          aria-hidden="true"
+          @change="importSettings"
+        />
       </div>
       <p v-if="importError" class="error" role="alert">{{ importError }}</p>
       <p class="hint">{{ t('backupHint') }}</p>
@@ -399,7 +403,18 @@ button.primary {
 button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 
 .file-button { display: inline-flex; align-items: center; }
-.file-button input { display: none; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .history__item { border-top: 1px solid var(--border); padding-top: 8px; }

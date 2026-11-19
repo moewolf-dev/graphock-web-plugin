@@ -40,7 +40,9 @@ local saves, CSS background images and webfont inlining, Safari packaging, store
 ```bash
 pnpm install
 pnpm verify            # lint + typecheck + 119 unit tests + build
-pnpm test:e2e          # real Chrome: load extension, capture a page, build a handoff URL
+pnpm qa               # build + Playwright extension suite (real clicks, keyboard, downloads)
+pnpm qa:ui            # Playwright UI mode for debugging
+pnpm qa:nightly       # 20-run stability + large-page guard
 pnpm build             # → apps/extension/dist/chrome
 pnpm package:chrome    # → artifacts/graphock-web-plugin-0.1.0-chrome.zip
 pnpm safari:project    # → apps/safari (Xcode container, requires Xcode)
@@ -106,6 +108,11 @@ pnpm protocol:receive --out ./tmp/clips --url 'graphock-direct://import#p=v1....
 `docs/reference-web-extensions/` contains pinned, read-only snapshots of mature clippers
 (Obsidian Web Clipper, MarkDownload, Defuddle) and notes-only records for AGPL projects
 (SingleFile, Omnivore). Nothing there is bundled. See each `NOTES.md` for what we borrow.
+
+## CI
+
+CI uses the organization-bound free Linux runners (Sengi/Avrea) and the free macOS runner
+instead of billed hosted runners. See [docs/ci-runners.md](docs/ci-runners.md).
 
 ## Troubleshooting
 

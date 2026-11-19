@@ -14,7 +14,9 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # Organization-bound free runners (Sengi / Avrea). Override with the
+    # CI_LINUX_RUNNER repository variable if a provider is unavailable.
+    runs-on: ${{ vars.CI_LINUX_RUNNER || ((endsWith(github.run_number, '1') || endsWith(github.run_number, '4') || endsWith(github.run_number, '7')) && 'sengi-basic-2-ubuntu-2404') || 'avrea-ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

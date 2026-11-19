@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   chrome:
-    runs-on: ubuntu-latest
+    # Free organization Linux runners (Sengi / Avrea).
+    runs-on: ${{ vars.CI_LINUX_RUNNER || ((endsWith(github.run_number, '1') || endsWith(github.run_number, '4') || endsWith(github.run_number, '7')) && 'sengi-basic-2-ubuntu-2404') || 'avrea-ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -40,7 +41,10 @@ jobs:
           if-no-files-found: warn
 
   safari:
-    runs-on: macos-latest
+    # Free organization macOS runner; needs Xcode for the Safari archive.
+    runs-on: ${{ fromJSON(vars.CI_MACOS_RUNNER_JSON || '["self-hosted","macOS","ARM64"]') }}
+    timeout-minutes: 40
+    if: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

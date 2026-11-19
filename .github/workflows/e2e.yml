@@ -14,11 +14,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  chrome:
+  e2e:
     # Chrome for Testing + a headful session; MV3 extensions do not load in
     # headless mode, and branded Chrome 137+ ignores --load-extension.
-    runs-on: macos-latest
-    timeout-minutes: 20
+    # Runs on the organization's free macOS runner instead of billed
+    # macos-latest. Override with CI_MACOS_RUNNER_JSON if needed.
+    runs-on: ${{ fromJSON(vars.CI_MACOS_RUNNER_JSON || '["self-hosted","macOS","ARM64"]') }}
+    timeout-minutes: 25
+    # Self-hosted runners must never execute untrusted fork code.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,9 +35,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm dlx playwright@1.65.1 install chromium
       - run: pnpm test:e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-screenshots
+          name: e2e-failure-artifacts
           path: test-results/
           if-no-files-found: ignore

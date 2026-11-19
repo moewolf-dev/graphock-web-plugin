@@ -23,7 +23,7 @@ const MAX_TEXT_CHARS = 400_000
 const MIN_READABLE_CHARS = 200
 // Readability is O(document); skip it on dashboard-sized pages where the
 // fallback (sanitised body) is both faster and usually more useful.
-const MAX_READABLE_NODES = 25_000
+const MAX_READABLE_NODES = 8_000
 const log = createLogger('content')
 
 function countNodes(root: Node): number {

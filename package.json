@@ -16,7 +16,7 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "protocol:receive": "tsx packages/protocol-receiver/src/cli.ts",
     "package:chrome": "node tooling/package/zip-chrome.mjs",
-    "test:e2e": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && E2E_HOST_PERMISSION=1 node tests/e2e/smoke.mjs",
+    "test:e2e": "pnpm qa",
     "build:e2e": "E2E_HOST_PERMISSION=1 pnpm build",
     "build:safari": "SAFARI=1 pnpm --filter @graphock/extension build",
     "safari:project": "node tooling/build/safari-project.mjs",
@@ -24,10 +24,15 @@
     "test:coverage": "vitest run --coverage",
     "lint:licenses": "node tooling/ci/audit-licenses.mjs",
     "lint:dco": "node tooling/ci/check-dco.mjs HEAD~1..HEAD",
-    "package:safari": "node tooling/package/archive-safari.mjs"
+    "package:safari": "node tooling/package/archive-safari.mjs",
+    "qa": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test",
+    "qa:ui": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --ui",
+    "qa:update": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --update-snapshots",
+    "qa:nightly": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @nightly"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "1.65.1",
     "@types/chrome": "^0.0.287",
     "@types/js-yaml": "^4.0.9",
     "@types/jsdom": "^21.1.7",
@@ -40,7 +45,6 @@
     "eslint-plugin-vue": "^9.33.0",
     "globals": "^15.15.0",
     "jsdom": "^25.0.1",
-    "playwright-core": "^1.65.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.73.0",
