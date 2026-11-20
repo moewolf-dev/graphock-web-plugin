@@ -10,6 +10,7 @@ const root = dirname(fileURLToPath(import.meta.url))
 const safari = process.argv.includes('--safari') || process.env.SAFARI === '1'
 const e2e = process.env.E2E_HOST_PERMISSION === '1'
 const appHandoff = process.env.GRAPHOCK_APP_HANDOFF !== '0'
+const releaseVersion = (process.env.GRAPHOCK_RELEASE_VERSION || '').trim()
 const outDir = resolve(root, safari ? 'dist/safari' : e2e ? 'dist/e2e' : 'dist/chrome')
 
 async function main() {
@@ -73,7 +74,10 @@ async function main() {
 
   const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8'))
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
-  manifest.version = pkg.version
+  manifest.version = releaseVersion || pkg.version
+  if (!/^\d+\.\d+\.\d+$/u.test(manifest.version)) {
+    throw new Error(`Invalid extension version: ${manifest.version}`)
+  }
   if (e2e) {
     // Test-only build: grants host access so the E2E suite can exercise a real
     // capture without an action click. Never used for packaging.

@@ -85,10 +85,12 @@ This is the only manual gate: the store reviewer sees the same flow.
 
 ## Release workflow
 
-- Tag/manual release builds with `pnpm package:chrome:store` (local-save).
-- `release-chrome` uploads the ZIP artifact.
-- Store submission is a separate protected manual workflow
-  (`publish-chrome-store.yml`), never a PR path.
+- Merges to `main` run `auto-release-chrome`: it increments only the patch
+  version, builds the local-save ZIP, uploads/publishes through the store API and
+  tags `v<version>` (no bot commit to protected main).
+- `release-chrome` remains a manual/tag build; `publish-chrome-store` remains the
+  manual fallback.
+- Store credentials live only in the `chrome-web-store` environment.
 
 ## Do not
 

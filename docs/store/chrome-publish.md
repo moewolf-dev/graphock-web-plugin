@@ -1,7 +1,9 @@
 # Chrome Web Store publishing
 
 First release: one manual session in the Developer Dashboard. Later releases:
-the protected `publish-chrome-store` workflow.
+`auto-release-chrome` on every merge to main (see
+[`../release/chrome-auto-publish.md`](../release/chrome-auto-publish.md)), with
+`publish-chrome-store` as the manual fallback.
 
 ## One-time first submission
 

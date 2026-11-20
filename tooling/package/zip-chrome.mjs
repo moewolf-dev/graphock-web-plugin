@@ -28,6 +28,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const distDir = resolve(root, 'apps/extension/dist/chrome')
 const outDir = resolve(root, 'artifacts')
 const localOnly = process.argv.includes('--local-only')
+const releaseVersion = (process.env.GRAPHOCK_RELEASE_VERSION || '').trim()
 
 const FORBIDDEN = [/\.map$/u, /\.p12$/u, /\.p8$/u, /\.mobileprovision$/u, /\.provisionprofile$/u, /\.cer$/u, /(^|\/)\.env/u, /(^|\/)secrets?\//u]
 
@@ -51,8 +52,9 @@ async function main() {
   const manifestPath = join(distDir, 'manifest.json')
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
   const pkg = JSON.parse(await readFile(join(root, 'apps/extension/package.json'), 'utf8'))
-  if (manifest.version !== pkg.version) {
-    fail(`manifest version ${manifest.version} does not match package version ${pkg.version}`)
+  const expectedVersion = releaseVersion || pkg.version
+  if (manifest.version !== expectedVersion) {
+    fail(`manifest version ${manifest.version} does not match expected version ${expectedVersion}`)
   }
 
   const snapshot = JSON.parse(
@@ -90,7 +92,7 @@ async function main() {
 
   const zipped = zipSync(archive, { mtime })
   await mkdir(outDir, { recursive: true })
-  const outFile = join(outDir, `graphock-web-plugin-${pkg.version}-chrome.zip`)
+  const outFile = join(outDir, `graphock-web-plugin-${manifest.version}-chrome.zip`)
   await writeFile(outFile, zipped)
   await writeFile(
     `${outFile}.sha256`,

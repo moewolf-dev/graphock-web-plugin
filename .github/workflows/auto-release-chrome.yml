@@ -1,0 +1,158 @@
+name: auto-release-chrome
+
+# Push to main -> next patch version -> local-save ZIP -> upload/publish.
+# Google review is still required; this cannot bypass it.
+#
+# Versioning: only z increments. The base x.y comes from
+# apps/extension/package.json; the next z is max(package z, matching tags)+1.
+# The version is recorded as a git tag (main is protected, so no bot commit).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/extension/**'
+      - 'packages/**'
+      - 'tooling/package/**'
+      - 'tooling/release/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/auto-release-chrome.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and verify only; do not upload or tag
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: auto-release-chrome
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ${{ vars.CI_LINUX_RUNNER || ((endsWith(github.run_number, '1') || endsWith(github.run_number, '4') || endsWith(github.run_number, '7')) && 'sengi-basic-2-ubuntu-2404') || 'avrea-ubuntu-latest' }}
+    timeout-minutes: 30
+    environment: chrome-web-store
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refresh tags
+        run: git fetch --tags --force
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Compute the next patch version
+        id: version
+        run: node tooling/release/version.mjs --github-env
+
+      - name: Install Chromium for the local-save lane
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build and test the local-save extension
+        env:
+          GRAPHOCK_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          GRAPHOCK_LOCAL_ONLY_BUILD: '1'
+        run: |
+          pnpm build:e2e:local
+          pnpm exec playwright test tests/e2e/local-store.spec.ts --reporter=line
+
+      - name: Package the store ZIP
+        env:
+          GRAPHOCK_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: pnpm package:chrome:store
+
+      - name: Verify the versioned ZIP
+        env:
+          ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
+        run: node tooling/release/cws-publish.mjs --zip "$ZIP" --dry-run
+
+      - name: Record the SHA-256
+        id: sha
+        env:
+          ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
+        run: |
+          SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v2
+        if: ${{ !inputs.dry_run }}
+        id: auth
+        with:
+          credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Check store identifiers
+        if: ${{ !inputs.dry_run }}
+        env:
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          test -n "$CWS_PUBLISHER_ID" || { echo "::error::Missing CWS_PUBLISHER_ID"; exit 1; }
+          test -n "$CWS_EXTENSION_ID" || { echo "::error::Missing CWS_EXTENSION_ID"; exit 1; }
+
+      - name: Reserve the version tag before upload
+        if: ${{ !inputs.dry_run }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG already exists; refusing to overwrite"
+            exit 1
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Upload and publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_PUBLISH_TYPE: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}
+          ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
+        run: node tooling/release/cws-publish.mjs --zip "$ZIP"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chrome-auto-release
+          path: |
+            artifacts/graphock-web-plugin-*-chrome.zip
+            artifacts/graphock-web-plugin-*-chrome.zip.sha256
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Chrome auto release"
+            echo "- Version: ${{ steps.version.outputs.version }}"
+            echo "- Tag: ${{ steps.version.outputs.tag }}"
+            echo "- ZIP: ${{ steps.sha.outputs.zip }}"
+            echo "- SHA-256: ${{ steps.sha.outputs.sha256 }}"
+            echo "- Publish type: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}"
+            echo "- Dry run: ${{ inputs.dry_run }}"
+            echo "- Google review is still required for every submission."
+          } >> "$GITHUB_STEP_SUMMARY"

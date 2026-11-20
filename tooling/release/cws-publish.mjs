@@ -1,0 +1,115 @@
+#!/usr/bin/env node
+/**
+ * Chrome Web Store API v2 upload + publish.
+ *
+ * Requires CWS_ACCESS_TOKEN (OAuth access token with
+ * https://www.googleapis.com/auth/chromewebstore), CWS_PUBLISHER_ID and
+ * CWS_EXTENSION_ID. The first listing must be created manually.
+ *
+ * Usage:
+ *   node tooling/release/cws-publish.mjs \
+ *     --zip artifacts/graphock-web-plugin-0.1.1-chrome.zip \
+ *     --publish-type DEFAULT_PUBLISH
+ */
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { unzipSync } from 'fflate'
+
+const API = 'https://chromewebstore.googleapis.com/v2/publishers'
+
+function arg(name, fallback = '') {
+  const index = process.argv.indexOf(`--${name}`)
+  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback
+}
+
+const zipPath = arg('zip', process.env.CWS_ZIP)
+const publisherId = arg('publisher', process.env.CWS_PUBLISHER_ID)
+const extensionId = arg('extension', process.env.CWS_EXTENSION_ID)
+const publishType = arg('publish-type', process.env.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH')
+const dryRun = process.argv.includes('--dry-run')
+
+function fail(message) {
+  console.error(`[cws] ${message}`)
+  process.exit(1)
+}
+
+if (!zipPath) fail('--zip is required')
+if (!['DEFAULT_PUBLISH', 'STAGED_PUBLISH'].includes(publishType)) {
+  fail(`unsupported --publish-type ${publishType}`)
+}
+
+const bytes = readFileSync(zipPath)
+const entries = unzipSync(new Uint8Array(bytes))
+if (!entries['manifest.json']) fail('ZIP has no manifest.json at the root')
+const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json']))
+if (!/^\d+\.\d+\.\d+$/u.test(manifest.version || '')) fail(`invalid version ${manifest.version}`)
+if ((manifest.permissions || []).includes('contextMenus')) fail('ZIP requests contextMenus')
+if (manifest.commands) fail('ZIP declares commands')
+if ((manifest.host_permissions || []).length > 0) fail('ZIP requests install-time host permissions')
+
+const sha256 = createHash('sha256').update(bytes).digest('hex')
+console.log(`[cws] zip ${zipPath}`)
+console.log(`[cws] version ${manifest.version}; sha256 ${sha256}; ${bytes.byteLength} bytes`)
+if (dryRun) {
+  console.log('[cws] dry run: no network calls')
+  process.exit(0)
+}
+
+const token = process.env.CWS_ACCESS_TOKEN || process.env.GOOGLE_OAUTH_ACCESS_TOKEN
+if (!token) fail('CWS_ACCESS_TOKEN is required')
+if (!publisherId) fail('CWS_PUBLISHER_ID is required')
+if (!extensionId) fail('CWS_EXTENSION_ID is required')
+
+const base = `${API}/${encodeURIComponent(publisherId)}/items/${encodeURIComponent(extensionId)}`
+
+async function request(label, url, options) {
+  const response = await fetch(url, options)
+  const text = await response.text()
+  let json = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    // Keep the raw text for the error message.
+  }
+  if (!response.ok) {
+    fail(`${label} failed (${response.status}): ${text.slice(0, 2000)}`)
+  }
+  console.log(`[cws] ${label}: ${text.slice(0, 2000) || '(empty)'}`)
+  return json
+}
+
+await request('upload', `${base}:upload`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/zip'
+  },
+  body: bytes,
+  signal: AbortSignal.timeout(120_000)
+})
+
+for (let attempt = 1; attempt <= 60; attempt += 1) {
+  const status = await request('fetchStatus', `${base}:fetchStatus`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(30_000)
+  })
+  const state = status?.uploadState ?? ''
+  if (state === 'UPLOAD_SUCCEEDED') break
+  if (state === 'UPLOAD_FAILED') fail('Chrome Web Store rejected the upload')
+  if (attempt === 60) fail(`upload still ${state || 'unknown'} after 5 minutes`)
+  await new Promise((resolve) => setTimeout(resolve, 5_000))
+}
+
+await request('publish', `${base}:publish`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ publishType }),
+  signal: AbortSignal.timeout(30_000)
+})
+
+console.log(
+  `[cws] submitted version ${manifest.version} with ${publishType}; Google review is still required`
+)
