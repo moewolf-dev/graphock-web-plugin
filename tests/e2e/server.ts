@@ -97,6 +97,26 @@ export async function startServer(): Promise<TestServer> {
         )
       )
     }
+    if (url === '/noisy') {
+      // Incompressible text: proves the wake/package path stays over the
+      // 24,000-character inline limit even after the link-only rebuild.
+      let seed = 0x9e3779b9
+      const next = (): string => {
+        seed ^= seed << 13
+        seed ^= seed >>> 17
+        seed ^= seed << 5
+        return (seed >>> 0).toString(36)
+      }
+      const paragraphs = Array.from(
+        { length: 1_200 },
+        () => `<p>${next()}${next()}${next()}${next()}${next()}${next()}</p>`
+      ).join('')
+      return send(
+        200,
+        'text/html; charset=utf-8',
+        htmlPage('Noisy clip', `<main><h1>Noisy clip</h1>${paragraphs}</main>`)
+      )
+    }
     if (url === '/large') {
       const paragraphs = Array.from(
         { length: 10_000 },

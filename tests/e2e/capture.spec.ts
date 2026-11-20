@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import type { Page } from '@playwright/test'
-import { mkdir, readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { strFromU8, unzipSync } from 'fflate'
 import { expect, test } from './fixtures'
 import {
@@ -12,6 +13,7 @@ import {
   historyLength,
   openContent,
   readDownloadedText,
+  setSetting,
   waitForNewDownload,
   waitForNextResult,
   waitForSuccess
@@ -238,6 +240,58 @@ test('large clips prepare a file package and the reference receiver imports it',
   expect(imported.assetPaths.length).toBeGreaterThan(0)
   const document = await readFile(imported.documentPath, 'utf8')
   expect(document).toContain('Big clip')
+})
+
+test('wake fallback saves a real .graphock-clip.json package for MAS import', async ({
+  context,
+  popup,
+  server
+}) => {
+  // Set both values in storage; the popup's local settings snapshot is stale
+  // after a direct storage write, so do not rely on its policy buttons here.
+  await setSetting(popup, 'targetScheme', 'graphock')
+  await setSetting(popup, 'imagePolicy', 'embed')
+  try {
+    // `/noisy` stays over the inline limit even after the link-only rebuild, so
+    // the MAS scheme genuinely reaches the wake + package path.
+    const content = await openContent(context, server.url, 'noisy')
+    await capture(popup, content)
+    await waitForSuccess(popup)
+    await expect(popup.getByTestId('meta')).toContainText('manually', { timeout: 30_000 })
+
+    // The App Store scheme has no file channel: the popup exposes the package
+    // action instead of a file-path delivery.
+    await expect(popup.getByTestId('save-package')).toBeVisible()
+
+    const baseline = await downloads(popup)
+    await popup.getByTestId('open-app').click()
+    const item = await waitForNewDownload(popup, baseline)
+    // Playwright stores downloads under a generated artifact name; the product
+    // filename is asserted through the notice and the package payload.
+    const packageJson = JSON.parse(await readDownloadedText(item))
+    expect(packageJson.schema).toBe('graphock.clip.handoff/1')
+    expect(packageJson.document.content).toContain('Noisy clip')
+
+    // The cross-repo system script hands this exact download to the App test.
+    const packageOut = process.env['GRAPHOCK_WAKE_PACKAGE_OUT']
+    if (packageOut) {
+      await mkdir(join(packageOut, '..'), { recursive: true })
+      await copyFile(item.filename, packageOut)
+    }
+
+    await expect
+      .poll(() => popup.locator('.clip').getAttribute('data-delivered-url'), { timeout: 10_000 })
+      .toBe('graphock://import')
+    await expect(popup.locator('.clip__notice')).toContainText('.graphock-clip.json')
+
+    // The explicit retry action also downloads a fresh package.
+    const retryBaseline = await downloads(popup)
+    await popup.getByTestId('save-package').click()
+    const retry = await waitForNewDownload(popup, retryBaseline)
+    expect(JSON.parse(await readDownloadedText(retry)).schema).toBe('graphock.clip.handoff/1')
+  } finally {
+    await setSetting(popup, 'targetScheme', 'graphock-direct')
+  }
 })
 
 test('diagnostics are available after a capture', async ({ context, popup, server }) => {

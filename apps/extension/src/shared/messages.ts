@@ -62,6 +62,13 @@ export type CancelRequest = { type: 'GRAPHOCK_CANCEL'; requestId: string }
 
 export type DeliverRequest = { type: 'GRAPHOCK_DELIVER'; clipId: string }
 
+/** Save the prepared handoff JSON so a sandboxed app can import it by file. */
+export type SavePackageRequest = { type: 'GRAPHOCK_SAVE_PACKAGE'; clipId: string }
+
+export type SavePackageResult =
+  | { ok: true; filename: string; path?: string }
+  | { ok: false; code: string; message: string }
+
 export type DeliverResult =
   | {
       ok: true

@@ -17,6 +17,8 @@ import {
   type CollectedPage,
   type DeliverRequest,
   type DeliverResult,
+  type SavePackageRequest,
+  type SavePackageResult,
   type SaveRequest,
   type Settings
 } from '../shared/messages'
@@ -161,7 +163,14 @@ function hasOffscreenApi(): boolean {
 }
 
 function canUseFileChannel(settings: Settings): boolean {
-  return hasDownloadsApi() && !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
+  // A file URL needs a real on-disk path, which the offscreen download path
+  // provides. Without it the package still downloads through the save page,
+  // but the app cannot be handed an absolute path.
+  return (
+    hasDownloadsApi() &&
+    hasOffscreenApi() &&
+    !FILE_CHANNEL_UNAVAILABLE_SCHEMES.has(settings.targetScheme)
+  )
 }
 
 function capabilities(settings: Settings): Capabilities {
@@ -278,13 +287,7 @@ async function savePackage(
   title: string,
   clipId: string,
   settings: Settings
-): Promise<{ path: string; filename: string }> {
-  if (!hasDownloadsApi()) {
-    throw new ProtocolError(
-      'E_CHANNEL_UNAVAILABLE',
-      'This browser cannot hand a package file to the app. Use “Save file” instead.'
-    )
-  }
+): Promise<{ path?: string; filename: string }> {
   // Validate with the same rules the receiver applies to the file channel.
   try {
     assertLimits(payload, 'file')
@@ -312,6 +315,9 @@ async function savePackage(
     subdirectory ? `${subdirectory}/${filename}` : filename,
     'application/json'
   )
+  // id < 0 means the browser used the extension-page fallback, which does not
+  // expose an absolute downloaded path to the background worker.
+  if (id < 0) return { filename }
   const item = await waitForDownload(id)
   return { path: item.filename, filename }
 }
@@ -584,6 +590,12 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
         build.document.clipId,
         record.settings
       )
+      if (!saved.path) {
+        throw new ProtocolError(
+          'E_CHANNEL_UNAVAILABLE',
+          'The clip package downloaded without a path this build can hand to the app.'
+        )
+      }
       const url = buildFileUrl(record.settings.targetScheme, saved.path, build.document.clipId)
       await rememberHistory(build, 'file')
       record.delivered = {
@@ -599,16 +611,40 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
       return record.delivered
     }
 
+    // The App Store build cannot read an arbitrary path, so hand it the clip
+    // package as a real download the user can pick after the wake link. This is
+    // the difference between "App wakes" and "the user can actually finish the
+    // import" for clips with embedded assets.
+    let saved: { path?: string; filename: string } | undefined
+    try {
+      saved = await savePackage(
+        build.payload,
+        build.document.source.title,
+        build.document.clipId,
+        record.settings
+      )
+    } catch (error) {
+      logError('wake-package-save-failed', {
+        code: error instanceof ProtocolError ? error.code : 'E_DELIVERY_FAILED',
+        message: error instanceof Error ? error.message : 'unknown'
+      })
+    }
+
     const url = buildWakeUrl(record.settings.targetScheme)
     await rememberHistory(build, 'wake')
     record.delivered = {
       ok: true,
       url,
       channel: 'wake',
-      fallbackReason:
-        'Graphock opened. Choose “Import file” in the app to bring this page in.'
+      ...(saved ? { savedFilename: saved.filename } : {}),
+      ...(saved?.path ? { savedPath: saved.path } : {}),
+      fallbackReason: saved
+        ? `Clip package saved as “${saved.filename}”. In Graphock choose “Import file” and select it.`
+        : 'Graphock opened. Use “Save Graphock clip package”, then choose “Import file”.'
     }
-    logInfo('deliver-ok', { channel: 'wake' }, { durationMs: performance.now() - started })
+    logInfo('deliver-ok', { channel: 'wake', packageSaved: Boolean(saved) }, {
+      durationMs: performance.now() - started
+    })
     return record.delivered
   } catch (error) {
     logError('deliver-failed', {
@@ -620,6 +656,41 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
       code: error instanceof ProtocolError ? error.code : 'E_DELIVERY_FAILED',
       message: error instanceof Error ? error.message : 'Could not deliver the clip'
     }
+  }
+}
+
+/**
+ * Explicit "Save Graphock clip package" action for the wake/MAS flow. `deliver`
+ * saves automatically, but the user may need to retry after dismissing the
+ * browser download or when the protocol prompt was blocked.
+ */
+async function saveClipPackage(clipId: string): Promise<SavePackageResult> {
+  const started = performance.now()
+  try {
+    const record = requirePrepared(clipId)
+    const saved = await savePackage(
+      record.build.payload,
+      record.build.document.source.title,
+      clipId,
+      record.settings
+    )
+    logInfo(
+      'save-package-ok',
+      { filename: saved.filename, path: Boolean(saved.path) },
+      { durationMs: performance.now() - started }
+    )
+    return {
+      ok: true,
+      filename: saved.filename,
+      ...(saved.path ? { path: saved.path } : {})
+    }
+  } catch (error) {
+    const code = error instanceof ProtocolError ? error.code : 'E_SAVE_FAILED'
+    const message = error instanceof Error ? error.message : 'Could not save the clip package'
+    logError('save-package-failed', { code, message }, {
+      durationMs: performance.now() - started
+    })
+    return { ok: false, code, message }
   }
 }
 
@@ -789,6 +860,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (type === 'GRAPHOCK_DELIVER') {
     deliver(message as DeliverRequest).then(sendResponse)
+    return true
+  }
+  if (type === 'GRAPHOCK_SAVE_PACKAGE') {
+    const request = message as SavePackageRequest
+    saveClipPackage(request.clipId).then(sendResponse)
     return true
   }
   if (type === 'GRAPHOCK_CAPABILITIES') {

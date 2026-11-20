@@ -196,7 +196,9 @@ async function openApp(): Promise<void> {
     await chrome.tabs.create({ url: delivered.url })
     notice.value =
       delivered.channel === 'wake'
-        ? t('openedWake')
+        ? delivered.savedFilename
+          ? t('packageSavedAndOpened').replace('{name}', delivered.savedFilename)
+          : t('openedWake')
         : delivered.channel === 'file'
           ? t('savedAndOpening')
           : t('openedConfirm')
@@ -232,6 +234,28 @@ async function saveFile(): Promise<void> {
           '{message}',
           `${response.code ?? 'E_SAVE'}: ${response.message ?? ''}`.trim()
         )
+  } finally {
+    busy.value = false
+  }
+}
+
+async function savePackageFile(): Promise<void> {
+  const value = result.value
+  if (loading.value || !value?.ok) return
+  busy.value = true
+  notice.value = ''
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: 'GRAPHOCK_SAVE_PACKAGE',
+      clipId: value.clipId
+    })) as
+      | { ok: true; filename: string; path?: string }
+      | { ok: false; code: string; message: string }
+    notice.value = response.ok
+      ? t('packageSaved').replace('{name}', response.filename)
+      : t('saveFailed').replace('{message}', `${response.code}: ${response.message}`)
+  } catch {
+    notice.value = t('protocolBlocked')
   } finally {
     busy.value = false
   }
@@ -384,6 +408,16 @@ onMounted(async () => {
     <div class="clip__actions">
       <button class="clip__button clip__button--primary" type="button" data-testid="save" :disabled="loading || !result?.ok || busy" @click="saveFile">
         {{ saveNeedsZip ? t('saveZip') : t('saveFile') }}
+      </button>
+      <button
+        v-if="result?.ok && result.channel === 'wake'"
+        class="clip__button"
+        type="button"
+        data-testid="save-package"
+        :disabled="loading || busy"
+        @click="savePackageFile"
+      >
+        {{ t('saveClipPackage') }}
       </button>
       <div class="clip__row">
         <button
