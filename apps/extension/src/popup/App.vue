@@ -9,6 +9,7 @@ import {
   type Settings
 } from '../shared/messages'
 import { t } from '../shared/strings'
+import { APP_HANDOFF_ENABLED } from '../shared/features'
 import { formatLog, type LogEntry } from '../shared/logger'
 
 const loading = ref(true)
@@ -23,6 +24,7 @@ let requestSeq = 0
 let currentRequestId = ''
 const appliedSeq = ref(0)
 const deliveredUrl = ref('')
+const appHandoff = APP_HANDOFF_ENABLED
 
 const modes: { value: CaptureMode; label: string; hint: string }[] = [
   { value: 'readable', label: t('readable'), hint: t('modeHintReadable') },
@@ -62,6 +64,7 @@ const metaText = computed(() => {
         (value.failedAssets > 0 ? t('imagesFailedSuffix').replace('{failed}', String(value.failedAssets)) : '') +
         (value.skippedAssets > 0 ? t('imagesSkippedSuffix').replace('{skipped}', String(value.skippedAssets)) : '')
       : ''
+  if (!appHandoff) return `${kb} KB${images}`
   if (value.channel === 'inline') {
     return `${t('metaInline').replace('{kb}', String(kb)).replace('{chars}', (value.urlLength ?? 0).toLocaleString())}${images}`
   }
@@ -419,7 +422,7 @@ onMounted(async () => {
       >
         {{ t('saveClipPackage') }}
       </button>
-      <div class="clip__row">
+      <div v-if="appHandoff" class="clip__row">
         <button
           class="clip__button"
           type="button"
@@ -438,7 +441,7 @@ onMounted(async () => {
     <p v-if="notice" class="clip__notice" role="status">{{ notice }}</p>
 
     <footer class="clip__footer">
-      <span class="clip__scheme">{{ settings.targetScheme }}://import</span>
+      <span v-if="appHandoff" class="clip__scheme">{{ settings.targetScheme }}://import</span>
       <button class="clip__link" type="button" @click="openOptions">{{ t('settings') }}</button>
     </footer>
   </main>

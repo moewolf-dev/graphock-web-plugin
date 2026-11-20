@@ -27,6 +27,7 @@ if (process.env.TZ !== 'UTC') {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const distDir = resolve(root, 'apps/extension/dist/chrome')
 const outDir = resolve(root, 'artifacts')
+const localOnly = process.argv.includes('--local-only')
 
 const FORBIDDEN = [/\.map$/u, /\.p12$/u, /\.p8$/u, /\.mobileprovision$/u, /\.provisionprofile$/u, /\.cer$/u, /(^|\/)\.env/u, /(^|\/)secrets?\//u]
 
@@ -58,11 +59,17 @@ async function main() {
     await readFile(join(root, 'tooling/package/permissions.snapshot.json'), 'utf8')
   )
   const actualPermissions = manifest.permissions ?? []
-  if (JSON.stringify(actualPermissions) !== JSON.stringify(snapshot.permissions)) {
+  const expectedPermissions = localOnly
+    ? snapshot.localOnlyPermissions
+    : snapshot.permissions
+  if (JSON.stringify(actualPermissions) !== JSON.stringify(expectedPermissions)) {
     fail(
       `permissions changed: ${JSON.stringify(actualPermissions)}.\n` +
         'Update tooling/package/permissions.snapshot.json intentionally, then re-run.'
     )
+  }
+  if (localOnly && manifest.commands) {
+    fail('local-only package must not declare App shortcut commands')
   }
   const hostPermissions = manifest.host_permissions ?? []
   if (JSON.stringify(hostPermissions) !== JSON.stringify(snapshot.hostPermissions)) {

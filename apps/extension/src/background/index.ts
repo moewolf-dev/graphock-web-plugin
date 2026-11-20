@@ -24,6 +24,7 @@ import {
 } from '../shared/messages'
 import { TimeoutError, withTimeout } from './timeout'
 import { createLogger, type LogEntry } from '../shared/logger'
+import { APP_HANDOFF_ENABLED } from '../shared/features'
 import {
   buildClip,
   buildClipZip,
@@ -560,6 +561,13 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
 }
 
 async function deliver(request: DeliverRequest): Promise<DeliverResult> {
+  if (!APP_HANDOFF_ENABLED) {
+    return {
+      ok: false,
+      code: 'E_APP_HANDOFF_DISABLED',
+      message: 'This build saves clips locally. Download the desktop app build for protocol handoff.'
+    }
+  }
   const started = performance.now()
   logInfo('deliver-start', { clipId: request.clipId })
   let record: Prepared
@@ -665,6 +673,13 @@ async function deliver(request: DeliverRequest): Promise<DeliverResult> {
  * browser download or when the protocol prompt was blocked.
  */
 async function saveClipPackage(clipId: string): Promise<SavePackageResult> {
+  if (!APP_HANDOFF_ENABLED) {
+    return {
+      ok: false,
+      code: 'E_APP_HANDOFF_DISABLED',
+      message: 'This build saves clips locally; clip packages are not part of the Chrome release.'
+    }
+  }
   const started = performance.now()
   try {
     const record = requirePrepared(clipId)
@@ -798,6 +813,7 @@ const MENU_PAGE = 'graphock-clip-page'
 const MENU_SELECTION = 'graphock-clip-selection'
 
 function createMenus(): void {
+  if (!APP_HANDOFF_ENABLED || !chrome.contextMenus) return
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: MENU_PAGE, title: 'Clip page to Graphock', contexts: ['page'] })
     chrome.contextMenus.create({
@@ -812,6 +828,7 @@ chrome.runtime.onInstalled.addListener(createMenus)
 chrome.runtime.onStartup.addListener(createMenus)
 
 async function quickClip(mode: CaptureRequest['mode']): Promise<void> {
+  if (!APP_HANDOFF_ENABLED) return
   const requestId = crypto.randomUUID()
   const result = await capture({ type: 'GRAPHOCK_CAPTURE', mode, requestId })
   if (!result.ok) {
@@ -836,15 +853,19 @@ async function quickClip(mode: CaptureRequest['mode']): Promise<void> {
   }
 }
 
-chrome.contextMenus.onClicked.addListener((info) => {
-  if (info.menuItemId === MENU_PAGE) void quickClip('readable')
-  else if (info.menuItemId === MENU_SELECTION) void quickClip('selection')
-})
+if (APP_HANDOFF_ENABLED && chrome.contextMenus) {
+  chrome.contextMenus.onClicked.addListener((info) => {
+    if (info.menuItemId === MENU_PAGE) void quickClip('readable')
+    else if (info.menuItemId === MENU_SELECTION) void quickClip('selection')
+  })
+}
 
-chrome.commands.onCommand.addListener((command) => {
-  if (command === 'clip-page') void quickClip('readable')
-  else if (command === 'clip-selection') void quickClip('selection')
-})
+if (APP_HANDOFF_ENABLED && chrome.commands) {
+  chrome.commands.onCommand.addListener((command) => {
+    if (command === 'clip-page') void quickClip('readable')
+    else if (command === 'clip-selection') void quickClip('selection')
+  })
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const type = (message as { type?: string } | undefined)?.type

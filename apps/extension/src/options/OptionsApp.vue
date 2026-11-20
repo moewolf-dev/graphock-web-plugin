@@ -10,9 +10,11 @@ import {
 } from '../shared/messages'
 import { t } from '../shared/strings'
 import { parseSettingsBackup, serializeSettings } from '../shared/settings'
+import { APP_HANDOFF_ENABLED } from '../shared/features'
 import { formatLog, type LogEntry } from '../shared/logger'
 
 const settings = ref<Settings>({ ...DEFAULT_SETTINGS })
+const appHandoff = APP_HANDOFF_ENABLED
 const history = ref<HistoryEntry[]>([])
 const saved = ref(false)
 const error = ref('')
@@ -180,7 +182,7 @@ onMounted(load)
       <p class="subtitle">{{ t('settingsSubtitle') }}</p>
     </header>
 
-    <section class="card">
+    <section v-if="appHandoff" class="card">
       <h2>{{ t('desktopApp') }}</h2>
       <label class="field">
         <span>{{ t('targetBuild') }}</span>

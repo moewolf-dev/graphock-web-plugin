@@ -9,6 +9,7 @@ import { build as viteBuild } from 'vite'
 const root = dirname(fileURLToPath(import.meta.url))
 const safari = process.argv.includes('--safari') || process.env.SAFARI === '1'
 const e2e = process.env.E2E_HOST_PERMISSION === '1'
+const appHandoff = process.env.GRAPHOCK_APP_HANDOFF !== '0'
 const outDir = resolve(root, safari ? 'dist/safari' : e2e ? 'dist/e2e' : 'dist/chrome')
 
 async function main() {
@@ -21,6 +22,9 @@ async function main() {
     root,
     logLevel: 'warn',
     plugins: [vue()],
+    define: {
+      __GRAPHOCK_APP_HANDOFF__: JSON.stringify(appHandoff)
+    },
     build: {
       outDir,
       emptyOutDir: false,
@@ -49,6 +53,7 @@ async function main() {
     format: 'iife',
     target: 'chrome120',
     outfile: resolve(outDir, 'content.js'),
+    define: { __GRAPHOCK_APP_HANDOFF__: JSON.stringify(appHandoff) },
     logLevel: 'warning'
   })
 
@@ -61,6 +66,7 @@ async function main() {
       format: 'iife',
       target: 'safari16',
       outfile: resolve(outDir, 'background.js'),
+      define: { __GRAPHOCK_APP_HANDOFF__: JSON.stringify(appHandoff) },
       logLevel: 'warning'
     })
   }
@@ -72,6 +78,14 @@ async function main() {
     // Test-only build: grants host access so the E2E suite can exercise a real
     // capture without an action click. Never used for packaging.
     manifest.host_permissions = ['<all_urls>']
+  }
+  if (!appHandoff) {
+    // Local-save release: remove App-only surfaces from the manifest as well as
+    // the UI, so reviewers never see an unreachable permission or command.
+    manifest.permissions = (manifest.permissions ?? []).filter(
+      (permission) => permission !== 'contextMenus'
+    )
+    delete manifest.commands
   }
   if (safari) {
     // Safari has no downloads API and no offscreen documents. The runtime
@@ -94,7 +108,9 @@ async function main() {
     await cp(axe, resolve(outDir, 'axe.min.js'))
   }
 
-  process.stdout.write(`Built extension at ${outDir}${e2e ? ' (E2E host permission)' : ''}${safari ? ' (Safari)' : ''}\n`)
+  process.stdout.write(
+    `Built extension at ${outDir}${e2e ? ' (E2E host permission)' : ''}${safari ? ' (Safari)' : ''}${appHandoff ? '' : ' (local-save only)'}\n`
+  )
 }
 
 main().catch((error) => {
