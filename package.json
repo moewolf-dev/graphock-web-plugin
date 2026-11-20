@@ -27,6 +27,7 @@
     "package:safari": "node tooling/package/archive-safari.mjs",
     "qa": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test",
     "qa:samples": "node tooling/qa/make-system-e2e-samples.mjs",
+    "qa:system": "node tooling/qa/system-verify.mjs",
     "qa:ui": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --ui",
     "qa:update": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --update-snapshots",
     "qa:nightly": "pnpm build && E2E_HOST_PERMISSION=1 pnpm build && playwright test --grep @nightly",
