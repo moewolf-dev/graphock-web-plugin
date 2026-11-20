@@ -30,7 +30,8 @@ Not in this release: App import, protocol prompts, MAS, Safari.
 | Manifest | MV3, version `0.1.0`, permissions `activeTab,scripting,storage,downloads,offscreen` |
 | Install-time host permissions | none |
 | Build | `pnpm qa:chrome:local` (= `build:e2e:local` → Playwright → `package:chrome:store`) |
-| Record | `artifacts/chrome-local-release.json` |
+| Record | `artifacts/chrome-local-release.json` (local); remote artifact carries the ZIP + `.sha256` |
+| Remote evidence | `release-chrome` run `44679547142`, success, same SHA |
 
 The packager re-execs with `TZ=UTC`, so the ZIP is reproducible across machines
 and the free Linux release runner.
