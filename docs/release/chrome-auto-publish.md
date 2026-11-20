@@ -144,6 +144,22 @@ Actions → auto-release-chrome → Run workflow → `dry_run` 不勾选
 
 它会发布 `0.1.1` 并创建 `v0.1.1`。
 
+## 3.7 真实发布已验证（2026-11-20）
+
+run `44789920753`（merge #8）成功：
+
+- 版本 `0.1.1`
+- ZIP SHA-256 `3a89e0ad1a83b26778c0eb8d69c21902e37857aaef48b9f616c8c6bf9d00a72c`
+- `publish` 返回 `PENDING_REVIEW`（等待 Google 审核）
+- tag `v0.1.1` 已创建
+- 下一个版本：`0.1.2`
+
+过程中修正了两处 API 细节：
+
+1. 不再依赖 IAM Service Account Credentials API；用服务账号 key 本地签 JWT。
+2. 上传必须走 `/upload/v2/...:upload`，状态读 `lastAsyncUploadState`
+   （`SUCCEEDED/IN_PROGRESS/FAILED`）。
+
 ## 4. 日常流程
 
 1. 开 PR，改代码
