@@ -160,9 +160,9 @@ Actions → auto-release-chrome → Run workflow → `dry_run` 不勾选
 
 ## 5. 失败与重试
 
-- **认证/ID 检查失败**：发生在打 tag 之前，不会消耗版本，修好 secrets 后重跑同一提交。
-- **上传/发布失败**：tag 已创建，版本视为已占用；下次 push 会递增到下一个 z。
-- **重复跑同一版本**：不会覆盖已有 tag；工作流会拒绝。
+- **认证/ID/上传/发布失败**：都在打 tag 之前，不会消耗版本；修好 secrets 后重跑同一提交/同一版本。
+- **上传成功但 publish 失败**：同样没有 tag；如果商店拒绝重复上传同版本，手动创建 `v<version>` tag 后再触发，下一次会递增 z。
+- **成功后**才创建 tag；tag 已存在时工作流拒绝覆盖。
 - **需要跳过某次发版**：提交信息包含 `[skip release]`，或只改文档。
 - **想手动补发**：Actions → `publish-chrome-store`，指定已有 release run 和 SHA。
 

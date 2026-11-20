@@ -111,7 +111,17 @@ jobs:
           test -n "$CWS_PUBLISHER_ID" || { echo "::error::Missing CWS_PUBLISHER_ID"; exit 1; }
           test -n "$CWS_EXTENSION_ID" || { echo "::error::Missing CWS_EXTENSION_ID"; exit 1; }
 
-      - name: Reserve the version tag before upload
+      - name: Upload and publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_PUBLISH_TYPE: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}
+          ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
+        run: node tooling/release/cws-publish.mjs --zip "$ZIP"
+
+      - name: Record the published version tag
         if: ${{ !inputs.dry_run }}
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -122,16 +132,6 @@ jobs:
           fi
           git tag "$TAG"
           git push origin "$TAG"
-
-      - name: Upload and publish
-        if: ${{ !inputs.dry_run }}
-        env:
-          CWS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
-          CWS_PUBLISH_TYPE: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}
-          ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
-        run: node tooling/release/cws-publish.mjs --zip "$ZIP"
 
       - uses: actions/upload-artifact@v4
         if: always()
