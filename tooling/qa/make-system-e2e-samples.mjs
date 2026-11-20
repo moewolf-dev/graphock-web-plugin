@@ -116,7 +116,11 @@ const fileUrl = `graphock-direct://import?file=${encodeURIComponent(filePath)}&v
 
 const files = {
   'inline.url': inlineUrl,
+  // Same payload under the MAS scheme; used to prove the file channel is
+  // rejected in the sandbox while inline still imports.
+  'inline-mas.url': inlineUrl.replace(/^graphock-direct:/u, 'graphock:'),
   'file.url': fileUrl,
+  'file-mas.url': fileUrl.replace(/^graphock-direct:/u, 'graphock:'),
   'wake-direct.url': 'graphock-direct://import',
   'wake-mas.url': 'graphock://import',
   'handoff.json': JSON.stringify(payload, null, 2)
@@ -143,6 +147,8 @@ Run from the repository root after the App has registered the scheme:
   ${openCommand} "$(cat artifacts/system-e2e/inline.url)"
   ${openCommand} "$(cat artifacts/system-e2e/file.url)"
   ${openCommand} "$(cat artifacts/system-e2e/wake-direct.url)"
+  ${openCommand} "$(cat artifacts/system-e2e/inline-mas.url)"
+  ${openCommand} "$(cat artifacts/system-e2e/file-mas.url)"
   ${openCommand} "$(cat artifacts/system-e2e/wake-mas.url)"
 
 Run the inline command twice to exercise E_DUPLICATE_CLIP.
