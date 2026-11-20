@@ -100,65 +100,13 @@ jobs:
           fi
           echo "::notice::ZIP SHA-256 verified: $ACTUAL"
 
-      - uses: google-github-actions/auth@v2
-        id: auth
-        with:
-          credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
-          token_format: access_token
-          scopes: https://www.googleapis.com/auth/chromewebstore
-
-      - name: Upload to the Chrome Web Store
+      - name: Upload and publish
         env:
-          TOKEN: ${{ steps.auth.outputs.access_token }}
-          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
-        run: |
-          set -euo pipefail
-          BASE="https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
-          echo "Uploading $ZIP"
-          curl --fail-with-body -sS -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/zip" \
-            --data-binary "@$ZIP" \
-            "$BASE:upload" > store-download/upload.json
-          cat store-download/upload.json
-
-      - name: Wait for upload processing
-        env:
-          TOKEN: ${{ steps.auth.outputs.access_token }}
-          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
-        run: |
-          set -euo pipefail
-          BASE="https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
-          for attempt in $(seq 1 30); do
-            STATUS=$(curl --fail-with-body -sS -H "Authorization: Bearer $TOKEN" "$BASE:fetchStatus")
-            echo "$STATUS"
-            STATE=$(printf '%s' "$STATUS" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("uploadState",""))')
-            case "$STATE" in
-              UPLOAD_SUCCEEDED) exit 0 ;;
-              UPLOAD_FAILED) echo "::error::Chrome Web Store upload failed"; exit 1 ;;
-              *) sleep 10 ;;
-            esac
-          done
-          echo "::error::Timed out waiting for upload processing"
-          exit 1
-
-      - name: Publish
-        env:
-          TOKEN: ${{ steps.auth.outputs.access_token }}
-          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
-          PUBLISH_TYPE: ${{ inputs.publish_type }}
-        run: |
-          set -euo pipefail
-          BASE="https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
-          curl --fail-with-body -sS -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"publishType\":\"$PUBLISH_TYPE\"}" \
-            "$BASE:publish"
-          echo "::notice::Submitted with $PUBLISH_TYPE. Google still reviews the item."
+          CWS_SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_PUBLISH_TYPE: ${{ inputs.publish_type }}
+        run: node tooling/release/cws-publish.mjs --zip "$ZIP"
 
       - name: Summary
         run: |
