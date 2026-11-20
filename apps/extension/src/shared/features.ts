@@ -7,6 +7,10 @@
  * existing cross-repo E2E builds keep the handoff on.
  *
  * `build.mjs` defines `__GRAPHOCK_APP_HANDOFF__` from GRAPHOCK_APP_HANDOFF=0.
+ *
+ * Release smoke: `auto-release-chrome` runs on merges to main, publishes one
+ * patch version, and records it as a `v<version>` tag. See
+ * docs/release/chrome-auto-publish.md.
  */
 declare const __GRAPHOCK_APP_HANDOFF__: boolean
 
