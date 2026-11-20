@@ -62,7 +62,7 @@ jobs:
 
       - name: Compute the next patch version
         id: version
-        run: node tooling/release/version.mjs --github-env
+        run: node tooling/release/version.mjs --github-env --github-output
 
       - name: Install Chromium for the local-save lane
         run: pnpm exec playwright install --with-deps chromium

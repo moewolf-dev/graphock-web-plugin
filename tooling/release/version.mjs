@@ -59,10 +59,16 @@ export function readTags() {
 function main() {
   const version = nextPatchVersion(readBaseVersion(), readTags())
   const tag = `v${version}`
+  const lines = `version=${version}\ntag=${tag}\n`
   if (process.argv.includes('--github-env')) {
     const file = process.env.GITHUB_ENV
     if (!file) throw new Error('GITHUB_ENV is not set')
-    appendFileSync(file, `version=${version}\ntag=${tag}\n`)
+    appendFileSync(file, lines)
+  }
+  if (process.argv.includes('--github-output')) {
+    const file = process.env.GITHUB_OUTPUT
+    if (!file) throw new Error('GITHUB_OUTPUT is not set')
+    appendFileSync(file, lines)
   }
   if (process.argv.includes('--json')) {
     console.log(JSON.stringify({ version, tag }))
