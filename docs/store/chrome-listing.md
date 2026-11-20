@@ -34,6 +34,42 @@ Open source (Apache-2.0): https://github.com/moewolf-dev/graphock-web-plugin
 
 Save the current page to a local file in the user's download folder.
 
+
+## 中文（简体）
+
+**简短说明（≤132 字符）**
+
+把当前网页保存为 Markdown、HTML、JSON、YAML 或带图片的 ZIP，全部保存在本地。无账号、无遥测。
+
+**详细说明**
+
+Graphock 网页剪藏把正在阅读的页面变成你自己的文件。
+
+- **三种抓取方式**：正文、整页或仅选区。
+- **五种格式**：Markdown、自包含 HTML、JSON、YAML、纯文本。
+- **图片可选**：嵌入图片（需要时再授权跨域读取）或保留链接；含图片的剪藏会保存为 ZIP，内含文档、清单和 assets。
+- **本地优先**：文件写入浏览器下载目录，页面内容不会上传服务器。
+- **设置与历史只在本机**：可随时在设置页清空。
+- **无账号、无广告、无分析。**
+
+本版本仅支持下载到本地，不会打开或发送数据到 Graphock 桌面端。
+
+开源（Apache-2.0）：https://github.com/moewolf-dev/graphock-web-plugin
+
+**单一用途**
+
+把当前网页保存为用户下载目录中的本地文件。
+
+**审核说明**
+
+1. 打开任意普通文章页。
+2. 点击扩展图标。
+3. 选择 Markdown 或 HTML，点击“保存文件”。
+4. 在下载目录确认文件。
+5. 选择“嵌入图片”保存 ZIP，确认包含 document.md、manifest.json 和 assets/。
+
+不需要账号、后端或桌面应用。
+
 ## Permission justifications
 
 | Permission | Why |
