@@ -30,9 +30,11 @@ The same SHA is produced by the free Linux release workflow (`release-chrome`, m
 
 ## App protocol (requires App PR #3)
 
-App-side unit coverage is in place (37 protocol tests, including all 11 plugin
-vectors and an end-to-end inline import); the steps below are the remaining
-system-level checks that need a packaged build and real clicks.
+App-side unit coverage is in place (43 protocol tests, including all 11 plugin
+vectors and a real mount/SQLite integration lane); the steps below are the
+remaining system-level checks that need a packaged build and real clicks.
+Use the generated links and checklists in
+[`system-e2e-2026-11-20.md`](./system-e2e-2026-11-20.md).
 
 1. Run the App build with the PR (dev or packaged).
 2. Click **Open in Graphock** from the popup.
