@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   chrome:
-    # Chrome-only candidate packaging. Safari native archiving is a separate
-    # manual workflow that requires a Mac with Xcode.
+    # Chrome-only local-save packaging. The build disables App handoff and drops
+    # contextMenus/commands; Safari remains a separate manual workflow.
     runs-on: ${{ vars.CI_LINUX_RUNNER || ((endsWith(github.run_number, '1') || endsWith(github.run_number, '4') || endsWith(github.run_number, '7')) && 'sengi-basic-2-ubuntu-2404') || 'avrea-ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -33,8 +33,7 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm audit --prod --audit-level high
       - run: pnpm lint:licenses
-      - run: pnpm build
-      - run: pnpm package:chrome
+      - run: pnpm package:chrome:store
       - uses: actions/upload-artifact@v4
         with:
           name: chrome-release

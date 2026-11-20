@@ -1,0 +1,171 @@
+name: publish-chrome-store
+
+# Protected manual store submission. Never runs on PRs or tags automatically.
+#
+# Prerequisites (one-time, see docs/store/chrome-publish.md):
+#   - publisherId and extensionId recorded from the Developer Dashboard
+#   - a Google Cloud service account bound to the publisher account
+#   - environment "chrome-web-store" with CWS_SERVICE_ACCOUNT_JSON,
+#     CWS_PUBLISHER_ID and CWS_EXTENSION_ID
+#
+# The workflow downloads an existing release-chrome artifact, verifies its
+# version/SHA-256, uploads it through the Chrome Web Store API v2, waits for the
+# upload status, then publishes (default or staged).
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful release-chrome run id that produced chrome-release
+        required: true
+        type: string
+      expected_sha256:
+        description: SHA-256 of the ZIP recorded by the release run
+        required: true
+        type: string
+      publish_type:
+        description: Publish immediately or leave staged for a manual go-live
+        required: true
+        default: DEFAULT_PUBLISH
+        type: choice
+        options:
+          - DEFAULT_PUBLISH
+          - STAGED_PUBLISH
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-chrome-store
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: chrome-web-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate credentials are configured
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          set -euo pipefail
+          for name in SERVICE_ACCOUNT PUBLISHER_ID EXTENSION_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing $name in the chrome-web-store environment"
+              exit 1
+            fi
+          done
+
+      - name: Download the release artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p store-download
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name chrome-release --dir store-download
+          ZIP=$(find store-download -name '*.zip' -type f -print -quit)
+          RECORD=$(find store-download -name 'chrome-local-release.json' -type f -print -quit)
+          test -n "$ZIP"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          if [ -n "$RECORD" ]; then echo "RECORD=$RECORD" >> "$GITHUB_ENV"; fi
+          unzip -p "$ZIP" manifest.json > store-download/manifest.json
+          python3 - <<'PY'
+          import json
+          m=json.load(open('store-download/manifest.json'))
+          print(f"::notice::Store ZIP version {m['version']}")
+          if 'contextMenus' in (m.get('permissions') or []):
+            raise SystemExit('store ZIP still requests contextMenus')
+          if m.get('commands'):
+            raise SystemExit('store ZIP still declares commands')
+          if (m.get('host_permissions') or []):
+            raise SystemExit('store ZIP requests install-time host permissions')
+          PY
+
+      - name: Verify the ZIP SHA-256
+        env:
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          set -euo pipefail
+          ACTUAL=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          if [ "$ACTUAL" != "$EXPECTED_SHA256" ]; then
+            echo "::error::SHA-256 mismatch: expected $EXPECTED_SHA256, got $ACTUAL"
+            exit 1
+          fi
+          echo "::notice::ZIP SHA-256 verified: $ACTUAL"
+
+      - uses: google-github-actions/auth@v2
+        id: auth
+        with:
+          credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Upload to the Chrome Web Store
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          set -euo pipefail
+          BASE="https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
+          echo "Uploading $ZIP"
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/zip" \
+            --data-binary "@$ZIP" \
+            "$BASE:upload" > store-download/upload.json
+          cat store-download/upload.json
+
+      - name: Wait for upload processing
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          set -euo pipefail
+          BASE="https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
+          for attempt in $(seq 1 30); do
+            STATUS=$(curl --fail-with-body -sS -H "Authorization: Bearer $TOKEN" "$BASE:fetchStatus")
+            echo "$STATUS"
+            STATE=$(printf '%s' "$STATUS" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("uploadState",""))')
+            case "$STATE" in
+              UPLOAD_SUCCEEDED) exit 0 ;;
+              UPLOAD_FAILED) echo "::error::Chrome Web Store upload failed"; exit 1 ;;
+              *) sleep 10 ;;
+            esac
+          done
+          echo "::error::Timed out waiting for upload processing"
+          exit 1
+
+      - name: Publish
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          PUBLISH_TYPE: ${{ inputs.publish_type }}
+        run: |
+          set -euo pipefail
+          BASE="https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID"
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"publishType\":\"$PUBLISH_TYPE\"}" \
+            "$BASE:publish"
+          echo "::notice::Submitted with $PUBLISH_TYPE. Google still reviews the item."
+
+      - name: Summary
+        run: |
+          {
+            echo "### Chrome Web Store submission"
+            echo "- Run: ${{ inputs.run_id }}"
+            echo "- ZIP SHA-256: ${{ inputs.expected_sha256 }}"
+            echo "- Publish type: ${{ inputs.publish_type }}"
+            echo "- Review is performed by Google; use fetchStatus for progress."
+          } >> "$GITHUB_STEP_SUMMARY"
