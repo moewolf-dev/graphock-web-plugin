@@ -88,6 +88,9 @@ https://chrome.google.com/webstore/devconsole/<publisherId>/...
    - 保存
 
 > 服务账号必须先绑定到发布者账号，否则 API 会返回 401/403。
+>
+> 不需要启用 IAM Service Account Credentials API：工作流用服务账号 key 在本地签 JWT，
+> 直接向 Google OAuth 换取 access token。
 
 ### 3.4 GitHub environment 与 secrets
 

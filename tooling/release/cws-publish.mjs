@@ -11,7 +11,7 @@
  *     --zip artifacts/graphock-web-plugin-0.1.1-chrome.zip \
  *     --publish-type DEFAULT_PUBLISH
  */
-import { createHash } from 'node:crypto'
+import { createHash, createSign } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { unzipSync } from 'fflate'
 
@@ -55,10 +55,61 @@ if (dryRun) {
   process.exit(0)
 }
 
-const token = process.env.CWS_ACCESS_TOKEN || process.env.GOOGLE_OAUTH_ACCESS_TOKEN
-if (!token) fail('CWS_ACCESS_TOKEN is required')
 if (!publisherId) fail('CWS_PUBLISHER_ID is required')
 if (!extensionId) fail('CWS_EXTENSION_ID is required')
+
+async function serviceAccountToken(raw) {
+  let credentials
+  try {
+    credentials = JSON.parse(raw)
+  } catch {
+    fail('CWS_SERVICE_ACCOUNT_JSON is not valid JSON')
+  }
+  if (!credentials.client_email || !credentials.private_key) {
+    fail('CWS_SERVICE_ACCOUNT_JSON must be a service account key with client_email/private_key')
+  }
+  const now = Math.floor(Date.now() / 1000)
+  const tokenUri = credentials.token_uri || 'https://oauth2.googleapis.com/token'
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+  const unsigned = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({
+    iss: credentials.client_email,
+    scope: 'https://www.googleapis.com/auth/chromewebstore',
+    aud: tokenUri,
+    iat: now,
+    exp: now + 3600
+  })}`
+  const signer = createSign('RSA-SHA256')
+  signer.update(unsigned)
+  signer.end()
+  const assertion = `${unsigned}.${signer.sign(credentials.private_key, 'base64url')}`
+  const response = await fetch(tokenUri, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion
+    }),
+    signal: AbortSignal.timeout(30_000)
+  })
+  const text = await response.text()
+  if (!response.ok) fail(`service account token exchange failed (${response.status}): ${text.slice(0, 1500)}`)
+  let json
+  try {
+    json = JSON.parse(text)
+  } catch {
+    fail('service account token exchange returned invalid JSON')
+  }
+  if (!json.access_token) fail('service account token exchange returned no access_token')
+  return json.access_token
+}
+
+const token =
+  process.env.CWS_ACCESS_TOKEN ||
+  process.env.GOOGLE_OAUTH_ACCESS_TOKEN ||
+  (process.env.CWS_SERVICE_ACCOUNT_JSON
+    ? await serviceAccountToken(process.env.CWS_SERVICE_ACCOUNT_JSON)
+    : '')
+if (!token) fail('CWS_ACCESS_TOKEN or CWS_SERVICE_ACCOUNT_JSON is required')
 
 const base = `${API}/${encodeURIComponent(publisherId)}/items/${encodeURIComponent(extensionId)}`
 
