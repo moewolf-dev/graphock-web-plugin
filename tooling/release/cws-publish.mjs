@@ -111,7 +111,8 @@ const token =
     : '')
 if (!token) fail('CWS_ACCESS_TOKEN or CWS_SERVICE_ACCOUNT_JSON is required')
 
-const base = `${API}/${encodeURIComponent(publisherId)}/items/${encodeURIComponent(extensionId)}`
+const metadataBase = `${API}/${encodeURIComponent(publisherId)}/items/${encodeURIComponent(extensionId)}`
+const uploadBase = `https://chromewebstore.googleapis.com/upload/v2/publishers/${encodeURIComponent(publisherId)}/items/${encodeURIComponent(extensionId)}:upload`
 
 async function request(label, url, options) {
   const response = await fetch(url, options)
@@ -129,7 +130,7 @@ async function request(label, url, options) {
   return json
 }
 
-await request('upload', `${base}:upload`, {
+const uploaded = await request('upload', uploadBase, {
   method: 'POST',
   headers: {
     Authorization: `Bearer ${token}`,
@@ -139,19 +140,24 @@ await request('upload', `${base}:upload`, {
   signal: AbortSignal.timeout(120_000)
 })
 
-for (let attempt = 1; attempt <= 60; attempt += 1) {
-  const status = await request('fetchStatus', `${base}:fetchStatus`, {
+function uploadState(value) {
+  return value?.lastAsyncUploadState ?? value?.uploadState ?? ''
+}
+
+if (uploadState(uploaded) === 'FAILED') fail('Chrome Web Store rejected the upload')
+for (let attempt = 1; uploadState(uploaded) !== 'SUCCEEDED' && attempt <= 60; attempt += 1) {
+  const status = await request('fetchStatus', `${metadataBase}:fetchStatus`, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(30_000)
   })
-  const state = status?.uploadState ?? ''
-  if (state === 'UPLOAD_SUCCEEDED') break
-  if (state === 'UPLOAD_FAILED') fail('Chrome Web Store rejected the upload')
+  const state = uploadState(status)
+  if (state === 'SUCCEEDED') break
+  if (state === 'FAILED') fail('Chrome Web Store rejected the upload')
   if (attempt === 60) fail(`upload still ${state || 'unknown'} after 5 minutes`)
   await new Promise((resolve) => setTimeout(resolve, 5_000))
 }
 
-await request('publish', `${base}:publish`, {
+const published = await request('publish', `${metadataBase}:publish`, {
   method: 'POST',
   headers: {
     Authorization: `Bearer ${token}`,
@@ -161,6 +167,7 @@ await request('publish', `${base}:publish`, {
   signal: AbortSignal.timeout(30_000)
 })
 
+if (published?.state === 'REJECTED') fail('Chrome Web Store rejected the submission')
 console.log(
-  `[cws] submitted version ${manifest.version} with ${publishType}; Google review is still required`
+  `[cws] submitted version ${manifest.version} with ${publishType}; state ${published?.state || 'unknown'}; Google review is still required`
 )
