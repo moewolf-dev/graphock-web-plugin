@@ -17,7 +17,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -27,6 +27,16 @@ const appDirArg = args.find((arg) => arg.startsWith('--app-dir='))
 const appDir = appDirArg
   ? resolve(root, appDirArg.slice('--app-dir='.length))
   : resolve(root, '..', 'graphock-console-app')
+const packagedArg = args.find((arg) => arg.startsWith('--packaged-app='))
+let packagedApp = packagedArg ? resolve(root, packagedArg.slice('--packaged-app='.length)) : ''
+if (packagedApp.endsWith('.app')) {
+  packagedApp = join(
+    packagedApp,
+    'Contents',
+    'MacOS',
+    basename(packagedApp, '.app')
+  )
+}
 const packageOut = join(root, 'artifacts/system-e2e/downloaded-wake-package.graphock-clip.json')
 mkdirSync(dirname(packageOut), { recursive: true })
 
@@ -69,14 +79,22 @@ if (!existsSync(packageOut)) {
   process.exit(1)
 }
 
-if (!skipBuild) run('build the App', 'pnpm', ['build'], { cwd: appDir })
-run('import the downloaded package in real Electron', 'pnpm', ['test:e2e:protocol'], {
-  cwd: appDir,
-  env: {
-    GRAPHOCK_SYSTEM_PACKAGE: packageOut,
-    GRAPHOCK_SYSTEM_PACKAGE_EXPECT: 'Noisy clip'
+if (!skipBuild && !packagedApp) run('build the App', 'pnpm', ['build'], { cwd: appDir })
+run(
+  packagedApp
+    ? 'import the downloaded package in the packaged App'
+    : 'import the downloaded package in real Electron',
+  'pnpm',
+  ['test:e2e:protocol'],
+  {
+    cwd: appDir,
+    env: {
+      GRAPHOCK_SYSTEM_PACKAGE: packageOut,
+      GRAPHOCK_SYSTEM_PACKAGE_EXPECT: 'Noisy clip',
+      ...(packagedApp ? { GRAPHOCK_PACKAGED_APP: packagedApp } : {})
+    }
   }
-})
+)
 
 console.log('\n[system-verify] PASS')
 console.log(`[system-verify] package: ${packageOut}`)
