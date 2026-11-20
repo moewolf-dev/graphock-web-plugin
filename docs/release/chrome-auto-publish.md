@@ -125,6 +125,22 @@ Actions → **auto-release-chrome** → Run workflow：
 [cws] dry run: no network calls
 ```
 
+## 3.6 已验证的 dry run
+
+2026-11-20 的 dry run（run `44772909651`）已通过：
+
+- 计算版本 `0.1.1`
+- 本地下载版 4 项 E2E 通过
+- ZIP `artifacts/graphock-web-plugin-0.1.1-chrome.zip`
+- SHA-256 `3a89e0ad1a83b26778c0eb8d69c21902e37857aaef48b9f616c8c6bf9d00a72c`
+- 没有创建 tag，没有上传
+
+配置好 secrets 后，第一次真实发布可以**不合并新代码**，直接：
+
+Actions → auto-release-chrome → Run workflow → `dry_run` 不勾选
+
+它会发布 `0.1.1` 并创建 `v0.1.1`。
+
 ## 4. 日常流程
 
 1. 开 PR，改代码
