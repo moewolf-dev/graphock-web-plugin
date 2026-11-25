@@ -15,9 +15,9 @@
     "@graphock/capture": "workspace:*"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.287",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "esbuild": "^0.24.2",
-    "vite": "^6.0.5"
+    "@types/chrome": "^0.3.7",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "esbuild": "^0.28.2",
+    "vite": "^8.3.8"
   }
 }
