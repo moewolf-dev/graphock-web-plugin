@@ -120,5 +120,6 @@ No account, backend or desktop app is required.
 - [ ] Confirm the privacy URL serves the policy (GitHub URL works today; the
       website page was not live on 2026-11-20).
 - [ ] Attach the screenshots from `artifacts/store-assets/`.
-- [ ] Generate screenshots from the handoff-enabled build and update the store listing.
+- [x] Generate and review screenshots with `pnpm qa:store-handoff-assets` (`artifacts/store-assets-handoff/`).
+- [ ] Attach the handoff screenshots and update the store listing.
 - [ ] Upload the verified handoff-enabled ZIP after the matching desktop app is available.

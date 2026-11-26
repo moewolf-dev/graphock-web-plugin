@@ -117,6 +117,10 @@ export async function startServer(): Promise<TestServer> {
         htmlPage('Noisy clip', `<main><h1>Noisy clip</h1>${paragraphs}</main>`)
       )
     }
+    if (url === '/store-demo') {
+      return send(200, 'text/html; charset=utf-8', htmlPage('A guide to better notes',
+        '<main><h1>A guide to better notes</h1><p>Capture useful ideas, keep the context, and find them again when you need them. A good note connects what you read to the work you want to do.</p><p>Save articles and references in your preferred format, then bring them into your workspace whenever you are ready.</p></main>'))
+    }
     if (url === '/large') {
       const paragraphs = Array.from(
         { length: 10_000 },

@@ -23,6 +23,7 @@
     "build:e2e:local": "E2E_HOST_PERMISSION=1 GRAPHOCK_APP_HANDOFF=0 pnpm build",
     "qa:chrome:local": "node tooling/qa/verify-local-release.mjs",
     "qa:store-assets": "node tooling/qa/store-assets.mjs",
+    "qa:store-handoff-assets": "GRAPHOCK_APP_HANDOFF=1 pnpm build:e2e && GRAPHOCK_STORE_HANDOFF_BUILD=1 playwright test tests/e2e/store-handoff-assets.spec.ts --reporter=line",
     "release:version:next": "node tooling/release/version.mjs",
     "release:publish:cws": "node tooling/release/cws-publish.mjs",
     "test:e2e": "pnpm qa",
