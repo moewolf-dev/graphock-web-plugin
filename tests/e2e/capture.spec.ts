@@ -197,6 +197,25 @@ test('saves a zip with document, manifest and assets', async ({ context, popup, 
   expect(manifest.assets.some((asset: { data?: string }) => asset.data)).toBe(false)
 })
 
+test('small clips deliver an inline link that the reference receiver imports', async ({ context, popup, server }, testInfo) => {
+  await setSetting(popup, 'targetScheme', 'graphock-direct')
+  const content = await openContent(context, server.url)
+  await ensurePolicy(popup, 'link')
+  await capture(popup, content)
+  await waitForSuccess(popup)
+  await popup.getByTestId('open-app').click()
+  await expect.poll(() => popup.locator('.clip').getAttribute('data-delivered-url'), { timeout: 10_000 })
+    .toContain('graphock-direct://import#p=v1.')
+  const url = await popup.locator('.clip').getAttribute('data-delivered-url')
+  if (!url) throw new Error('inline protocol URL missing')
+  const output = execFileSync('pnpm', [
+    'exec', 'tsx', 'packages/protocol-receiver/src/cli.ts', '--out', testInfo.outputPath('inline-receiver'), '--url', url
+  ], { cwd: root, encoding: 'utf8' })
+  const imported = JSON.parse(output.slice(output.indexOf('{')))
+  expect(imported.channel).toBe('inline')
+  expect(await readFile(imported.documentPath, 'utf8')).toContain('Smoke page')
+})
+
 test('large clips prepare a file package and the reference receiver imports it', async ({
   context,
   popup,

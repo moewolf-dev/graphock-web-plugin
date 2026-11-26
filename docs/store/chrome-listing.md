@@ -1,4 +1,4 @@
-# Chrome Web Store listing — local-save release
+# Chrome Web Store listing — 0.2 desktop handoff candidate
 
 - Product: Graphock Web Clipper
 - Category: Productivity
@@ -21,18 +21,19 @@ Graphock Web Clipper turns the page you are reading into a file you own.
 - **Four document formats** — Markdown, self-contained HTML, JSON and YAML from one document model.
 - **Images included or linked** — embed images (with optional cross-origin access) or keep URLs;
   clips with assets save as a ZIP containing the document, manifest and asset files.
-- **Local first** — everything is written to your browser's download folder. Page content never
-  goes to a server.
+- **Local first** — save to your browser's download folder or explicitly hand a clip to the
+  desktop app. The extension does not upload clips to a server.
 - **Settings and history stay local** — clear them at any time from the options page.
 - **No account, no ads, no analytics.**
 
-This release is download-only. It does not open or send data to the Graphock desktop app.
+Optionally choose **Open in Graphock** to pass a clip to the installed desktop app.
+For large clips, the extension saves a package and the app may ask you to select it.
 
 Open source (Apache-2.0): https://github.com/moewolf-dev/graphock-web-plugin
 
 ## Single purpose
 
-Save the current page to a local file in the user's download folder.
+Save the current page locally or pass it to the installed Graphock desktop app at the user's request.
 
 
 ## 中文（简体）
@@ -48,17 +49,17 @@ Graphock 网页剪藏把正在阅读的页面变成你自己的文件。
 - **三种抓取方式**：正文、整页或仅选区。
 - **五种格式**：Markdown、自包含 HTML、JSON、YAML、纯文本。
 - **图片可选**：嵌入图片（需要时再授权跨域读取）或保留链接；含图片的剪藏会保存为 ZIP，内含文档、清单和 assets。
-- **本地优先**：文件写入浏览器下载目录，页面内容不会上传服务器。
+- **本地优先**：文件写入浏览器下载目录，也可由你选择交给桌面应用；扩展不会将剪藏上传到服务器。
 - **设置与历史只在本机**：可随时在设置页清空。
 - **无账号、无广告、无分析。**
 
-本版本仅支持下载到本地，不会打开或发送数据到 Graphock 桌面端。
+也可以选择“在 Graphock 中打开”，将剪藏交给已安装的桌面应用。较大的剪藏会保存为文件包，应用可能提示你选择该文件。
 
 开源（Apache-2.0）：https://github.com/moewolf-dev/graphock-web-plugin
 
 **单一用途**
 
-把当前网页保存为用户下载目录中的本地文件。
+把当前网页保存为本地文件，或按用户选择交给已安装的 Graphock 桌面应用。
 
 **审核说明**
 
@@ -79,15 +80,16 @@ Graphock 网页剪藏把正在阅读的页面变成你自己的文件。
 | `storage` | Remember settings and a local list of recent clip titles/URLs. |
 | `downloads` | Save the exported file or ZIP to your download folder. |
 | `offscreen` | MV3 service workers cannot create Blob URLs; a tiny offscreen page creates the download. |
+| `contextMenus` | Offer page and selection clipping actions in the browser context menu. |
 | Optional `host_permissions` (`<all_urls>`) | Only requested if you click “Allow cross-origin images”, so embedded images can be fetched. |
 
 No host permissions are requested at install time. No remote code, no `eval`, no CDN.
-The local-save manifest does not request `contextMenus` and declares no App shortcuts.
+The handoff-enabled manifest requests `contextMenus` and declares shortcuts for clipping.
 
 ## Data usage answers
 
-- Does the extension collect user data? **No data leaves the device.**
-- Page content: processed transiently in memory and written to a local file only when the user asks.
+- Does the extension upload user data? **The extension does not upload clips to a server.** The desktop app's settings apply after an explicit handoff.
+- Page content: processed in memory and saved locally or passed to the installed desktop app only when the user asks.
 - Personally identifiable information: not collected.
 - Authentication information: not collected (no login).
 - Financial / health / personal communications: not collected.
@@ -118,5 +120,6 @@ No account, backend or desktop app is required.
 - [ ] Confirm the privacy URL serves the policy (GitHub URL works today; the
       website page was not live on 2026-11-20).
 - [ ] Attach the screenshots from `artifacts/store-assets/`.
-- [ ] Upload the ZIP recorded in `artifacts/chrome-local-release.json`.
-- [ ] Do not claim desktop-app import in this release.
+- [x] Generate and review screenshots with `pnpm qa:store-handoff-assets` (`artifacts/store-assets-handoff/`).
+- [ ] Attach the handoff screenshots and update the store listing.
+- [ ] Upload the verified handoff-enabled ZIP after the matching desktop app is available.

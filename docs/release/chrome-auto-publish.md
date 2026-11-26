@@ -1,7 +1,7 @@
 # Chrome 自动发布（push → 递增 z → 上传 → 提审）
 
-目标：合并代码到 `main` 后，自动生成下一个 **patch** 版本（只加 z），构建
-本地下载版 ZIP，调用 Chrome Web Store API 上传并提交发布。Google 仍会审核，
+目标：合并代码到 `main` 后，自动生成版本，构建带桌面唤醒功能的 ZIP，
+调用 Chrome Web Store API 上传并提交发布。Google 仍会审核，
 自动化不能跳过审核。
 
 ## 1. 行为
@@ -21,21 +21,22 @@
 
 1. `lint` + `typecheck` + 单元测试
 2. 计算版本
-3. 本地下载版 E2E（4 项：无 App 入口、Markdown、HTML、ZIP）
-4. 构建 `dist/chrome` 和商店 ZIP
+3. 本地下载版 E2E（4 项），以及桌面唤醒 inline、file、wake 三通道 E2E
+4. 以 `GRAPHOCK_APP_HANDOFF=1` 构建 `dist/chrome` 和商店 ZIP
 5. 用 `GRAPHOCK_RELEASE_VERSION` 覆盖 manifest 版本
-6. 校验 ZIP 无 `contextMenus` / `commands` / 安装时 host 权限
-7. 创建 `v<version>` tag（不向受保护的 main 推提交）
-8. 服务账号换 token
-9. CWS API `upload → fetchStatus → publish`
+6. 校验 ZIP 权限与已审查快照一致，且没有安装时 host 权限
+7. 服务账号换 token
+8. CWS API `upload → fetchStatus → publish`
+9. 创建 `v<version>` tag（不向受保护的 main 推提交）
 10. 上传 ZIP 到 Actions artifact 并写 summary
 
-## 2. 版本规则：只递增 z
+## 2. 版本规则
 
 版本来源：
 
-- x.y 来自 `apps/extension/package.json`（当前 `0.1.0`）
-- z = `max(package 的 z, 同 x.y 的 tag 的最大 z) + 1`
+- x.y 来自 `apps/extension/package.json`（当前 `0.2.0`）
+- 正常情况下 z = `max(package 的 z, 同 x.y 的 tag 的最大 z) + 1`
+- 当包版本有意升到新的 `x.y.0`、旧系列存在 tag 且新系列尚无 tag 时，首次使用 `x.y.0`
 - 其他 x.y 的 tag 会被忽略
 
 示例：
@@ -45,6 +46,8 @@
 | 0.1.0 | 无 | 0.1.1 |
 | 0.1.0 | v0.1.1 | 0.1.2 |
 | 0.1.0 | v0.2.9 | 0.1.1（忽略 0.2） |
+| 0.2.0 | v0.1.1 | 0.2.0 |
+| 0.2.0 | v0.1.1、v0.2.0 | 0.2.1 |
 | 0.2.0 | v0.2.3 | 0.2.4 |
 
 因此：

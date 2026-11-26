@@ -14,6 +14,8 @@ describe('Chrome release versioning', () => {
   })
 
   it('follows a deliberate minor bump in package.json', () => {
+    expect(nextPatchVersion('0.2.0', ['v0.1.1'])).toBe('0.2.0')
+    expect(nextPatchVersion('0.2.0', ['v0.1.1', 'v0.2.0'])).toBe('0.2.1')
     expect(nextPatchVersion('0.2.0', ['v0.1.9', 'v0.2.3'])).toBe('0.2.4')
   })
 
