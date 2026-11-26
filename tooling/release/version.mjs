@@ -2,10 +2,13 @@
 /**
  * Release versioning for the Chrome extension.
  *
- * Rule: automation only increments the patch (z) component.
+ * Rule: automation increments the patch (z) component. A deliberate minor
+ * bump starts at the declared base version when older series have tags but the
+ * new series has none.
  *   base 0.1.0 + no tags          -> 0.1.1
  *   base 0.1.0 + tag v0.1.1       -> 0.1.2
  *   base 0.1.0 + tag v0.2.9       -> 0.1.1 (different minor is ignored)
+ *   base 0.2.0 + tag v0.1.1       -> 0.2.0
  *
  * The major/minor come from apps/extension/package.json. Bumping y is a
  * deliberate manual decision; this tool never does it.
@@ -28,12 +31,19 @@ export function nextPatchVersion(baseVersion, tags) {
   const base = parseVersion(baseVersion)
   if (!base) throw new Error(`Invalid base version: ${baseVersion}`)
   let maxPatch = base.patch
+  let sameSeries = false
+  let olderSeries = false
   for (const tag of tags) {
     const parsed = parseVersion(String(tag).replace(/^v/u, ''))
     if (!parsed) continue
+    if (parsed.major < base.major || (parsed.major === base.major && parsed.minor < base.minor)) {
+      olderSeries = true
+    }
     if (parsed.major !== base.major || parsed.minor !== base.minor) continue
+    sameSeries = true
     if (parsed.patch > maxPatch) maxPatch = parsed.patch
   }
+  if (base.patch === 0 && olderSeries && !sameSeries) return `${base.major}.${base.minor}.0`
   return `${base.major}.${base.minor}.${maxPatch + 1}`
 }
 

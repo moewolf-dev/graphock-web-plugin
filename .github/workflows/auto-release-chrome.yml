@@ -1,6 +1,6 @@
 name: auto-release-chrome
 
-# Push to main -> next patch version -> local-save ZIP -> upload/publish.
+# Push to main -> next version -> handoff-enabled ZIP -> upload/publish.
 # Google review is still required; this cannot bypass it.
 #
 # Versioning: only z increments. The base x.y comes from
@@ -75,15 +75,23 @@ jobs:
           pnpm build:e2e:local
           pnpm exec playwright test tests/e2e/local-store.spec.ts --reporter=line
 
+      - name: Build and test desktop handoff channels
+        env:
+          GRAPHOCK_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          GRAPHOCK_APP_HANDOFF: '1'
+        run: |
+          pnpm build:e2e
+          pnpm exec playwright test tests/e2e/capture.spec.ts --grep 'small clips deliver|large clips prepare|wake fallback' --reporter=line
+
       - name: Package the store ZIP
         env:
           GRAPHOCK_RELEASE_VERSION: ${{ steps.version.outputs.version }}
-        run: pnpm package:chrome:store
+        run: pnpm package:chrome:handoff
 
       - name: Verify the versioned ZIP
         env:
           ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
-        run: node tooling/release/cws-publish.mjs --zip "$ZIP" --dry-run
+        run: node tooling/release/cws-publish.mjs --zip "$ZIP" --handoff --dry-run
 
       - name: Record the SHA-256
         id: sha
@@ -113,7 +121,7 @@ jobs:
           CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
           CWS_PUBLISH_TYPE: ${{ vars.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH' }}
           ZIP: artifacts/graphock-web-plugin-${{ steps.version.outputs.version }}-chrome.zip
-        run: node tooling/release/cws-publish.mjs --zip "$ZIP"
+        run: node tooling/release/cws-publish.mjs --zip "$ZIP" --handoff
 
       - name: Record the published version tag
         if: ${{ !inputs.dry_run }}

@@ -13,6 +13,8 @@
  */
 import { createHash, createSign } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
 
 const API = 'https://chromewebstore.googleapis.com/v2/publishers'
@@ -27,6 +29,7 @@ const publisherId = arg('publisher', process.env.CWS_PUBLISHER_ID)
 const extensionId = arg('extension', process.env.CWS_EXTENSION_ID)
 const publishType = arg('publish-type', process.env.CWS_PUBLISH_TYPE || 'DEFAULT_PUBLISH')
 const dryRun = process.argv.includes('--dry-run')
+const handoff = process.argv.includes('--handoff')
 
 function fail(message) {
   console.error(`[cws] ${message}`)
@@ -43,8 +46,17 @@ const entries = unzipSync(new Uint8Array(bytes))
 if (!entries['manifest.json']) fail('ZIP has no manifest.json at the root')
 const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json']))
 if (!/^\d+\.\d+\.\d+$/u.test(manifest.version || '')) fail(`invalid version ${manifest.version}`)
-if ((manifest.permissions || []).includes('contextMenus')) fail('ZIP requests contextMenus')
-if (manifest.commands) fail('ZIP declares commands')
+if (handoff) {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+  const snapshot = JSON.parse(readFileSync(resolve(root, 'tooling/package/permissions.snapshot.json'), 'utf8'))
+  if (JSON.stringify(manifest.permissions ?? []) !== JSON.stringify(snapshot.permissions)) fail('handoff ZIP permissions differ from the reviewed snapshot')
+  if (JSON.stringify(manifest.optional_host_permissions ?? []) !== JSON.stringify(snapshot.optionalHostPermissions)) fail('handoff ZIP optional host permissions differ from the reviewed snapshot')
+  const commands = Object.keys(manifest.commands ?? {}).sort()
+  if (JSON.stringify(commands) !== JSON.stringify(['_execute_action', 'clip-page', 'clip-selection'])) fail('handoff ZIP commands differ from the reviewed set')
+} else {
+  if ((manifest.permissions || []).includes('contextMenus')) fail('ZIP requests contextMenus')
+  if (manifest.commands) fail('ZIP declares commands')
+}
 if ((manifest.host_permissions || []).length > 0) fail('ZIP requests install-time host permissions')
 
 const sha256 = createHash('sha256').update(bytes).digest('hex')

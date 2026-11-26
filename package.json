@@ -1,6 +1,6 @@
 {
   "name": "graphock-web-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.18.0",
@@ -18,6 +18,8 @@
     "package:chrome": "node tooling/package/zip-chrome.mjs",
     "build:chrome:store": "GRAPHOCK_APP_HANDOFF=0 pnpm build",
     "package:chrome:store": "pnpm build:chrome:store && node tooling/package/zip-chrome.mjs --local-only",
+    "build:chrome:handoff": "GRAPHOCK_APP_HANDOFF=1 pnpm build",
+    "package:chrome:handoff": "pnpm build:chrome:handoff && node tooling/package/zip-chrome.mjs",
     "build:e2e:local": "E2E_HOST_PERMISSION=1 GRAPHOCK_APP_HANDOFF=0 pnpm build",
     "qa:chrome:local": "node tooling/qa/verify-local-release.mjs",
     "qa:store-assets": "node tooling/qa/store-assets.mjs",

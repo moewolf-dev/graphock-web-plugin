@@ -34,7 +34,6 @@ import {
 } from './build'
 
 const GENERATOR_NAME = 'graphock-web-plugin'
-const GENERATOR_VERSION = '0.1.0'
 const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024
 const MAX_PACKAGE_BYTES = MAX_FILE_PAYLOAD_BYTES
 const FILE_CHANNEL_UNAVAILABLE_SCHEMES = new Set(['graphock'])
@@ -469,7 +468,7 @@ async function capture(request: CaptureRequest): Promise<CaptureResult> {
       mode: request.mode,
       scheme: settings.targetScheme,
       format,
-      generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION, browser: navigator.userAgent }
+      generator: { name: GENERATOR_NAME, version: chrome.runtime.getManifest().version, browser: navigator.userAgent }
     }
 
     stage = 'build'
